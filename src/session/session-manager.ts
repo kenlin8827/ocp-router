@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { ChatCompletionRequest } from '../types/openai.js';
-import { RoutingDecision, TierLevel, TierModelConfig } from '../types/router.js';
+import { RoutingDecision, TierLevel, TierModelConfig, TIER_RANK } from '../types/router.js';
 import { SessionConfig } from '../config/types.js';
 
 export interface ConversationSession {
@@ -18,12 +18,6 @@ export interface SessionResolveResult {
   sessionId: string;
   lookupType: 'explicit_header' | 'request_user' | 'prefix_chain' | 'root_anchor';
 }
-
-const TIER_RANK: Record<TierLevel, number> = {
-  tier1: 1,
-  tier2: 2,
-  tier3: 3,
-};
 
 /**
  * Session Monotonic Ratchet Manager
@@ -214,7 +208,7 @@ export class SessionManager {
 
     // 3. Monotonic Ratchet strategy
     if (proposedRank > currentMaxRank) {
-      // 3A. Escalation triggered (e.g. Tier 1 -> Tier 2 or Tier 2 -> Tier 3)
+      // 3A. Escalation triggered (e.g. fast -> flagship or flagship -> reasoning)
       const oldTier = session.maxTier;
       session.maxTier = proposedDecision.targetTier;
       const upgradedModel = resolveModelForTier(session.maxTier);

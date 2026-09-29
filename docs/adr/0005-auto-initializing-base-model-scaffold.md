@@ -42,7 +42,7 @@ $$\text{Softmax}(z) = \left[\frac{e^0}{3}, \frac{e^0}{3}, \frac{e^0}{3}\right] \
 - Maximum probability is $\approx 0.334$;
 - Standard confidence threshold is $\theta = 0.85$;
 - Because $0.334 < 0.85$, `isConfident` evaluates to **strictly `false` with mathematical certainty**;
-- Safe baseline quality defaults to `targetTier: 'tier2'` (preventing premature down-scaling on short queries);
+- Safe baseline quality defaults to `targetTier: 'flagship'` (preventing premature down-scaling on short queries);
 - `routeAsync` inspects `!isConfident` and **100% cascades deterministically to Layer 2**.
 
 ### 4. Active In-Place Flywheel Evolution

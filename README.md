@@ -99,12 +99,12 @@ OCP Router is fully compatible with OpenAI API standards. Simply point your clie
    ```
    http://127.0.0.1:3000/v1
    ```
-4. In the model selector, add and select the virtual model: `cascading-auto`.
+4. In the model selector, add and select the virtual model: `auto`.
 
 ### 2. Chatbox / NextChat / LobeChat
 1. **API URL / Base URL**: `http://127.0.0.1:3000` (or `http://127.0.0.1:3000/v1`).
 2. **API Key**: Any arbitrary string (or your `adminApiKey` if configured in `config.yaml`).
-3. **Model**: Select or enter `cascading-auto`.
+3. **Model**: Select or enter `auto`.
 
 ### 3. Python SDK
 ```python
@@ -116,7 +116,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="cascading-auto",  # Recommended 4-step cascading router
+    model="auto",  # Recommended 4-step cascading router
     messages=[
         {"role": "user", "content": "Write a generic TypeScript debounce function with unit tests."}
     ]
@@ -136,7 +136,7 @@ const openai = new OpenAI({
 
 async function main() {
   const completion = await openai.chat.completions.create({
-    model: 'cascading-auto',
+    model: 'auto',
     messages: [{ role: 'user', content: 'Explain the principles of quantum computing.' }],
     stream: true,
   });
@@ -154,7 +154,7 @@ main();
 curl http://127.0.0.1:3000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "cascading-auto",
+    "model": "auto",
     "messages": [
       {"role": "user", "content": "Which is greater, 9.11 or 9.8? Explain briefly."}
     ]
@@ -169,10 +169,10 @@ In addition to exposing all registered upstream physical models, OCP Router prov
 
 | Model ID | Purpose & Behavior | Cost Profile |
 | :--- | :--- | :--- |
-| **`cascading-auto`** <br>*(Recommended Default)* | **Intelligent 4-Step Cascading Router**: Analyzes complexity, schemas, and session ratchets to dispatch the optimal model dynamically. | 70% ~ 90% Savings |
-| **`tier1-fast`** | **Forced Low-Cost Tier**: Micro-models optimized for fast information extraction, greetings, and basic translations. | ~$0.10 ~ $0.50 / M Tokens |
-| **`tier2-flagship`** | **Forced Flagship Workhorse**: General flagship models for architecture design, refactoring, and code generation. | ~$2.00 ~ $10.00 / M Tokens |
-| **`tier3-reasoning`** | **Forced Reasoning Specialist**: Deep thinking models for mathematical proofs and complex algorithms. | ~$5.00 ~ $60.00 / M Tokens |
+| **`auto`** <br>*(Recommended Default)* | **Intelligent 4-Step Cascading Router**: Analyzes complexity, schemas, and session ratchets to dispatch the optimal model dynamically. | 70% ~ 90% Savings |
+| **`auto-fast`** | **Forced Low-Cost Tier**: Micro-models optimized for fast information extraction, greetings, and basic translations. | ~$0.10 ~ $0.50 / M Tokens |
+| **`auto-flagship`** | **Forced Flagship Workhorse**: General flagship models for architecture design, refactoring, and code generation. | ~$2.00 ~ $10.00 / M Tokens |
+| **`auto-reasoning`** | **Forced Reasoning Specialist**: Deep thinking models for mathematical proofs and complex algorithms. | ~$5.00 ~ $60.00 / M Tokens |
 | *Upstream Models* | Direct pass-through to any physical model (e.g., `kimi-k2.7-code`, `deepseek-chat`). | Upstream standard rates |
 
 ---
@@ -182,7 +182,7 @@ In addition to exposing all registered upstream physical models, OCP Router prov
 ### 1. Response Diagnostic Headers
 Every API response includes FinOps diagnostic headers:
 * `X-OCP-Router-Trace-ID`: Unique trace identifier for the request turn (e.g. `trace_8df3e29a...`).
-* `X-OCP-Router-Tier`: Target tier utilized (`tier1`, `tier2`, `tier3`).
+* `X-OCP-Router-Tier`: Target tier utilized (`fast`, `flagship`, `reasoning`).
 * `X-OCP-Router-Model`: Specific upstream model ID invoked.
 * `X-OCP-Router-Session-ID`: Session fingerprint hash (`sess_8df3e29a...`).
 * `X-OCP-Router-Session-Ratchet`: Whether the monotonic ratchet locked the tier (`true` / `false`).
@@ -239,9 +239,9 @@ curl http://127.0.0.1:3000/v1/metrics
   "cacheHitRatePct": 32.8,
   "fallbackCount": 18,
   "tierDistribution": {
-    "tier1": { "count": 960, "pct": 75.0 },
-    "tier2": { "count": 270, "pct": 21.09 },
-    "tier3": { "count": 50, "pct": 3.91 }
+    "fast": { "count": 960, "pct": 75.0 },
+    "flagship": { "count": 270, "pct": 21.09 },
+    "reasoning": { "count": 50, "pct": 3.91 }
   },
   "economics": {
     "actualCostUsd": 0.512,

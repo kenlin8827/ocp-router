@@ -34,10 +34,11 @@ export class RouterEngine {
 
     // 1. Force Tier Override (for testing or explicit client choice)
     if (request.router_options?.force_tier) {
+      const forced = request.router_options.force_tier;
       return {
-        targetTier: request.router_options.force_tier,
+        targetTier: forced,
         confidence: 1.0,
-        reason: `Explicitly forced to ${request.router_options.force_tier} by request options`,
+        reason: `Explicitly forced to ${forced} by request options`,
         layerUsed: 'layer0',
         needsSchemaValidation,
         features: {
@@ -94,14 +95,14 @@ export class RouterEngine {
         hasMathOrProof: metrics.symbolEntropy > 0.7,
         hasMultiTurn: metrics.turnCount > 3,
         hasToolsOrSchema: needsSchemaValidation,
-        complexityScore: prediction.targetTier === 'tier3' ? 8.0 : prediction.targetTier === 'tier2' ? 5.0 : 2.0,
+        complexityScore: prediction.targetTier === 'reasoning' ? 8.0 : prediction.targetTier === 'flagship' ? 5.0 : 2.0,
       },
     };
   }
 
   /**
    * Asynchronous Hierarchical Routing
-   * Layer 1 (Local Model Base / Experience) -> Layer 2 (Jev / OpenCode Proxy) -> Safe Quality Baseline (Tier 2)
+   * Layer 1 (Local Model Base / Experience) -> Layer 2 (Jev / OpenCode Proxy) -> Safe Quality Baseline (flagship)
    */
   public static async routeAsync(
     request: ChatCompletionRequest,
@@ -177,7 +178,7 @@ export class RouterEngine {
           hasMathOrProof: metrics.symbolEntropy > 0.7,
           hasMultiTurn: metrics.turnCount > 3,
           hasToolsOrSchema: needsSchemaValidation,
-          complexityScore: prediction.targetTier === 'tier3' ? 8.0 : prediction.targetTier === 'tier2' ? 5.0 : 2.0,
+          complexityScore: prediction.targetTier === 'reasoning' ? 8.0 : prediction.targetTier === 'flagship' ? 5.0 : 2.0,
         },
       };
     }
@@ -198,13 +199,13 @@ export class RouterEngine {
             hasMathOrProof: metrics.symbolEntropy > 0.7,
             hasMultiTurn: metrics.turnCount > 3,
             hasToolsOrSchema: needsSchemaValidation,
-            complexityScore: decisionResult.targetTier === 'tier3' ? 8.0 : decisionResult.targetTier === 'tier2' ? 5.0 : 2.0,
+            complexityScore: decisionResult.targetTier === 'reasoning' ? 8.0 : decisionResult.targetTier === 'flagship' ? 5.0 : 2.0,
           },
         };
       }
     }
 
-    // 5. Default Quality-First Decision (Safe Tier 2 Flagship Baseline)
+    // 5. Default Quality-First Decision (Safe Flagship Baseline)
     return {
       targetTier: prediction.targetTier,
       confidence: prediction.confidence,
@@ -217,7 +218,7 @@ export class RouterEngine {
         hasMathOrProof: metrics.symbolEntropy > 0.7,
         hasMultiTurn: metrics.turnCount > 3,
         hasToolsOrSchema: needsSchemaValidation,
-        complexityScore: prediction.targetTier === 'tier3' ? 8.0 : prediction.targetTier === 'tier2' ? 5.0 : 2.0,
+        complexityScore: prediction.targetTier === 'reasoning' ? 8.0 : prediction.targetTier === 'flagship' ? 5.0 : 2.0,
       },
     };
   }

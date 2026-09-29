@@ -25,8 +25,8 @@ Design and implement a **Hierarchical Decision Pipeline** paired with an **Activ
   - Invokes a non-autoregressive decision model equipped with recent dialogue history turns.
   - Generates type-safe tier decisions with calibrated confidence metrics, eliminating generation formatting errors.
 - **Layer 3: Runtime Execution & Cascading Assertion (Fallback Engine)**
-  - Tier 1 model attempts execution -> Local AST / JSON schema assertion.
-  - Upon assertion failure, silently escalates to Tier 2 flagship and records a negative training sample.
+  - fast tier model attempts execution -> Local AST / JSON schema assertion.
+  - Upon assertion failure, silently escalates to flagship tier flagship and records a negative training sample.
 
 ### 2. Active Learning Data Flywheel
 ```mermaid
@@ -45,9 +45,9 @@ flowchart TD
 ```
 
 - **Ground Truth Signal Collection**:
-  - **Negative Samples**: When Tier 1 execution fails schema assertions triggering fallback, the query is marked as a definitive negative sample for Tier 1.
+  - **Negative Samples**: When fast tier execution fails schema assertions triggering fallback, the query is marked as a definitive negative sample for fast tier.
   - **Teacher Labels**: Authoritative decisions from Layer 2 act as distillation labels.
-  - **Positive Samples**: Unprompted queries cleanly satisfied on Tier 1.
+  - **Positive Samples**: Unprompted queries cleanly satisfied on fast tier.
 - **Continuous In-Place Evolution**:
   - The local micro-tensor base model is updated periodically via `bun run train:layer1`.
   - Goal: Absorb >90% of recurring traffic at Layer 1 (<0.1ms, $0 cost), reducing Layer 2 invocations to <10%.

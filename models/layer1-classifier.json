@@ -17,9 +17,9 @@
     "punctuation_density"
   ],
   "classes": [
-    "tier1",
-    "tier2",
-    "tier3"
+    "fast",
+    "flagship",
+    "reasoning"
   ],
   "weights": [
     [0, 0, 0],

@@ -65,11 +65,11 @@ describe('Layer 1 & Layer 2 Routing and Data Flywheel', () => {
 
     const decision = await RouterEngine.routeAsync(req, undefined, {
       localModel: { enabled: true, confidenceThreshold: 0.85 },
-      // Layer 2 not enabled in this unit test -> cascades to default safe tier2 baseline
+      // Layer 2 not enabled in this unit test -> cascades to default safe flagship baseline
     });
 
     // Layer 1 didn't claim high confidence -> gracefully passed to default/Layer 2
-    assert.strictEqual(decision.targetTier, 'tier2');
+    assert.strictEqual(decision.targetTier, 'flagship');
     assert.strictEqual(decision.layerUsed, 'layer1');
     assert.ok(decision.confidence < 0.50);
   });
@@ -77,12 +77,12 @@ describe('Layer 1 & Layer 2 Routing and Data Flywheel', () => {
   it('Layer 1 Layer1Classifier can be trained in-place from samples to produce confident predictions', async () => {
     await Layer1Classifier.init({ enabled: true, modelPath: testModelPath });
 
-    // Generate training samples for Tier 1 vs Tier 3
-    const reqTier1: ChatCompletionRequest = {
+    // Generate training samples for Fast vs Reasoning
+    const reqFast: ChatCompletionRequest = {
       model: 'auto',
       messages: [{ role: 'user', content: 'hi' }],
     };
-    const reqTier3: ChatCompletionRequest = {
+    const reqReasoning: ChatCompletionRequest = {
       model: 'auto',
       messages: [
         { role: 'system', content: 'Complex logic reasoning system' },
@@ -90,12 +90,12 @@ describe('Layer 1 & Layer 2 Routing and Data Flywheel', () => {
       ],
     };
 
-    const featTier1 = Layer1Classifier.extractFeatures(reqTier1).vector;
-    const featTier3 = Layer1Classifier.extractFeatures(reqTier3).vector;
+    const featFast = Layer1Classifier.extractFeatures(reqFast).vector;
+    const featReasoning = Layer1Classifier.extractFeatures(reqReasoning).vector;
 
     const samples = [
-      ...Array(20).fill({ features: featTier1, targetTier: 'tier1' as const }),
-      ...Array(20).fill({ features: featTier3, targetTier: 'tier3' as const }),
+      ...Array(20).fill({ features: featFast, targetTier: 'fast' as const }),
+      ...Array(20).fill({ features: featReasoning, targetTier: 'reasoning' as const }),
     ];
 
     const trainRes = Layer1Classifier.train(samples, { epochs: 100, lr: 0.2 });
@@ -103,10 +103,10 @@ describe('Layer 1 & Layer 2 Routing and Data Flywheel', () => {
     assert.ok(trainRes.accuracy > 0.80, `Trained accuracy should be high: ${trainRes.accuracy}`);
     assert.strictEqual(Layer1Classifier.isBaseModel(), false, 'Model is now trained, no longer empty base');
 
-    // Predict on reqTier3 with low threshold
-    const predAfterTrain = Layer1Classifier.predict(reqTier3, { enabled: true, confidenceThreshold: 0.50 });
+    // Predict on reqReasoning with low threshold
+    const predAfterTrain = Layer1Classifier.predict(reqReasoning, { enabled: true, confidenceThreshold: 0.50 });
     assert.strictEqual(predAfterTrain.isConfident, true);
-    assert.strictEqual(predAfterTrain.targetTier, 'tier3');
+    assert.strictEqual(predAfterTrain.targetTier, 'reasoning');
   });
 
   it('Layer 1 Layer1Classifier should produce calibrated probabilities and respect confidence gating for schema tasks', () => {
@@ -119,13 +119,13 @@ describe('Layer 1 & Layer 2 Routing and Data Flywheel', () => {
     // 1. High confidence threshold (e.g. 0.99) -> isConfident = false
     const predStrict = Layer1Classifier.predict(req, { enabled: true, confidenceThreshold: 0.99 });
     assert.strictEqual(predStrict.isConfident, false);
-    assert.strictEqual(predStrict.targetTier, 'tier1');
-    assert.ok(predStrict.probabilities.tier1 > 0.5);
+    assert.strictEqual(predStrict.targetTier, 'fast');
+    assert.ok(predStrict.probabilities.fast > 0.5);
 
     // 2. Realistic threshold (0.70) -> isConfident = true
     const predNormal = Layer1Classifier.predict(req, { enabled: true, confidenceThreshold: 0.70 });
     assert.strictEqual(predNormal.isConfident, true);
-    assert.strictEqual(predNormal.targetTier, 'tier1');
+    assert.strictEqual(predNormal.targetTier, 'fast');
   });
 
   it('FlywheelCollector should log samples and record negative sample flag on schema fallback', async () => {
@@ -140,12 +140,12 @@ describe('Layer 1 & Layer 2 Routing and Data Flywheel', () => {
       messages: [{ role: 'user', content: 'Extract invoice json data' }],
     };
 
-    // Record sample 1: successful Tier 1 run
+    // Record sample 1: successful Fast tier run
     await collector.record({
       requestId: 'test-req-1',
       request: dummyReq,
       decision: {
-        targetTier: 'tier1',
+        targetTier: 'fast',
         confidence: 0.9,
         layerUsed: 'layer0',
         reason: 'Fast rule',
@@ -159,19 +159,19 @@ describe('Layer 1 & Layer 2 Routing and Data Flywheel', () => {
           complexityScore: 2.0,
         },
       },
-      tierUsed: 'tier1',
-      modelUsed: 'mock-tier1',
+      tierUsed: 'fast',
+      modelUsed: 'mock-fast',
       fallbackOccurred: false,
       costUsd: 0.0001,
       latencyMs: 120,
     });
 
-    // Record sample 2: Tier 1 schema assertion failed -> Escalated fallback to Tier 2
+    // Record sample 2: Fast tier schema assertion failed -> Escalated fallback to flagship
     await collector.record({
       requestId: 'test-req-2',
       request: dummyReq,
       decision: {
-        targetTier: 'tier1',
+        targetTier: 'fast',
         confidence: 0.85,
         layerUsed: 'layer0',
         reason: 'Initial guess',
@@ -185,8 +185,8 @@ describe('Layer 1 & Layer 2 Routing and Data Flywheel', () => {
           complexityScore: 3.5,
         },
       },
-      tierUsed: 'tier2',
-      modelUsed: 'mock-tier2',
+      tierUsed: 'flagship',
+      modelUsed: 'mock-flagship',
       fallbackOccurred: true,
       fallbackReason: 'Missing field: invoiceNumber',
       costUsd: 0.002,
@@ -197,8 +197,8 @@ describe('Layer 1 & Layer 2 Routing and Data Flywheel', () => {
     assert.strictEqual(stats.totalSamples, 2);
     assert.strictEqual(stats.fallbackCount, 1);
     assert.strictEqual(stats.negativeSampleCount, 1);
-    assert.strictEqual(stats.tierDistribution.tier1, 1);
-    assert.strictEqual(stats.tierDistribution.tier2, 1);
+    assert.strictEqual(stats.tierDistribution.fast, 1);
+    assert.strictEqual(stats.tierDistribution.flagship, 1);
 
     // Verify written file content
     assert.ok(fs.existsSync(testFlywheelPath));
@@ -207,8 +207,8 @@ describe('Layer 1 & Layer 2 Routing and Data Flywheel', () => {
 
     const record2 = JSON.parse(content[1]);
     assert.strictEqual(record2.id, 'test-req-2');
-    assert.strictEqual(record2.label.isNegativeSampleForTier1, true);
-    assert.strictEqual(record2.label.groundTruthTier, 'tier2');
+    assert.strictEqual(record2.label.isNegativeSampleForFast, true);
+    assert.strictEqual(record2.label.groundTruthTier, 'flagship');
     assert.strictEqual(record2.label.labelSource, 'runtime_fallback');
   });
 });

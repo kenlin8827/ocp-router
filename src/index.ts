@@ -32,8 +32,8 @@ async function main() {
       console.log(`[ocp-router] Dynamically synchronized ${syncedModels.length} models from OpenCode!`);
 
       config.models = syncedModels;
-      const defaultTier2 = syncedModels.find(m => m.tier === 'tier2' && m.isDefaultInTier) || syncedModels[0];
-      config.baselineModel = defaultTier2?.id || 'auto';
+      const defaultFlagship = syncedModels.find(m => m.tier === 'flagship' && m.isDefaultInTier) || syncedModels[0];
+      config.baselineModel = defaultFlagship?.id || 'auto';
 
       registry = new ProviderRegistry(config, false);
       const openCodeProxy = new OpenCodeProxyProvider(serviceCfg);
@@ -63,7 +63,7 @@ async function main() {
     console.log('\n============================================================');
     console.log(`🚀 OCP Router Gateway is ready! (OpenAI API Compatible)`);
     console.log(`👉 API Base URL     : http://127.0.0.1:${config.port}/v1`);
-    console.log(`👉 Default Model    : auto (or cascading-auto)`);
+    console.log(`👉 Default Model    : auto (Virtual models: auto, auto-fast, auto-flagship, auto-reasoning)`);
     console.log(`👉 Chat Completions : http://127.0.0.1:${config.port}/v1/chat/completions`);
     console.log(`👉 Models List      : http://127.0.0.1:${config.port}/v1/models`);
     console.log(`👉 FinOps Metrics   : http://127.0.0.1:${config.port}/v1/metrics`);

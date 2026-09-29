@@ -21,11 +21,11 @@ export interface Layer2JudgeResult {
 export class Layer2Judge {
   private static readonly DECISION_QUESTION =
     'Classify the computational task difficulty tier (ATTENTION: NEVER judge difficulty by character length! Short prompts like "P=NP?" or "Prove Fermat\'s Last Theorem" are high-difficulty): ' +
-    'tier1 (trivial QA, simple calculation, basic translation, shallow extraction, casual greetings), ' +
-    'tier2 (system architecture, complex software engineering, refactoring, creative generation, nuanced reasoning), ' +
-    'tier3 (deep mathematical proof, formal symbolic logic, NP-hard algorithmic complexity, quantum physics).';
+    'fast (trivial QA, simple calculation, basic translation, shallow extraction, casual greetings), ' +
+    'flagship (system architecture, complex software engineering, refactoring, creative generation, nuanced reasoning), ' +
+    'reasoning (deep mathematical proof, formal symbolic logic, NP-hard algorithmic complexity, quantum physics).';
 
-  private static readonly CHOICES = ['tier1', 'tier2', 'tier3'];
+  private static readonly CHOICES = ['fast', 'flagship', 'reasoning'];
 
   /**
    * Evaluate request using Layer 2 specialized decision judge model
@@ -84,8 +84,8 @@ export class Layer2Judge {
         if (!res.ok) return null;
 
         const data = (await res.json()) as any;
-        const choice = (data.choice || data.decision || 'tier2').toLowerCase();
-        const tier: TierLevel = (choice === 'tier3' || choice === 'tier1') ? choice : 'tier2';
+        const choice = (data.choice || data.decision || 'flagship').toLowerCase();
+        const tier: TierLevel = (choice === 'fast' || choice === 'reasoning') ? choice : 'flagship';
         const confidence = typeof data.confidence === 'number' ? data.confidence : 0.92;
 
         return {
@@ -113,11 +113,11 @@ export class Layer2Judge {
               {
                 role: 'system',
                 content:
-                  'You are a strict task complexity classifier. Analyze the user request and output JSON: {"tier": "tier1" | "tier2" | "tier3", "confidence": number}.\n' +
-                  'CRITICAL RULE: DO NOT JUDGE BY TEXT LENGTH. Short prompts can be highly complex (e.g. "P=NP?", "Prove Riemann Hypothesis" are tier3; "Red-Black Tree implementation" is tier2).\n' +
-                  '- tier1: trivial arithmetic, basic translation, casual greeting, shallow lookup.\n' +
-                  '- tier2: system architecture, coding/refactoring, engineering design, creative writing.\n' +
-                  '- tier3: mathematical proofs, NP-hard theoretical problems, formal symbolic logic.',
+                  'You are a strict task complexity classifier. Analyze the user request and output JSON: {"tier": "fast" | "flagship" | "reasoning", "confidence": number}.\n' +
+                  'CRITICAL RULE: DO NOT JUDGE BY TEXT LENGTH. Short prompts can be highly complex (e.g. "P=NP?", "Prove Riemann Hypothesis" are reasoning; "Red-Black Tree implementation" is flagship).\n' +
+                  '- fast: trivial arithmetic, basic translation, casual greeting, shallow lookup.\n' +
+                  '- flagship: system architecture, coding/refactoring, engineering design, creative writing.\n' +
+                  '- reasoning: mathematical proofs, NP-hard theoretical problems, formal symbolic logic.',
               },
               { role: 'user', content: userText.slice(0, 3000) },
             ],
@@ -134,7 +134,7 @@ export class Layer2Judge {
         const data = (await res.json()) as any;
         const content = data.choices?.[0]?.message?.content || '{}';
         const parsed = JSON.parse(content);
-        const tier: TierLevel = parsed.tier === 'tier3' || parsed.tier === 'tier1' ? parsed.tier : 'tier2';
+        const tier: TierLevel = (parsed.tier === 'fast' || parsed.tier === 'reasoning') ? parsed.tier : 'flagship';
 
         return {
           targetTier: tier,

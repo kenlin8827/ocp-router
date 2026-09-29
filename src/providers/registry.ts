@@ -36,26 +36,26 @@ export class ProviderRegistry {
     // In mock testing mode, if no models provided, populate mock tier models
     if (this.mockMode && this.models.size === 0) {
       const mockT1: ModelRegistration = {
-        id: 'mock-tier1',
+        id: 'mock-fast',
         provider: 'mock',
-        upstreamModel: 'mock-tier1',
-        tier: 'tier1',
+        upstreamModel: 'mock-fast',
+        tier: 'fast',
         isDefaultInTier: true,
         pricing: { promptUsdPer1M: 0.2, cachedPromptUsdPer1M: 0.05, completionUsdPer1M: 0.8 },
       };
       const mockT2: ModelRegistration = {
-        id: 'mock-tier2',
+        id: 'mock-flagship',
         provider: 'mock',
-        upstreamModel: 'mock-tier2',
-        tier: 'tier2',
+        upstreamModel: 'mock-flagship',
+        tier: 'flagship',
         isDefaultInTier: true,
         pricing: { promptUsdPer1M: 3.0, cachedPromptUsdPer1M: 0.75, completionUsdPer1M: 12.0 },
       };
       const mockT3: ModelRegistration = {
-        id: 'mock-tier3',
+        id: 'mock-reasoning',
         provider: 'mock',
-        upstreamModel: 'mock-tier3',
-        tier: 'tier3',
+        upstreamModel: 'mock-reasoning',
+        tier: 'reasoning',
         isDefaultInTier: true,
         pricing: { promptUsdPer1M: 15.0, cachedPromptUsdPer1M: 3.75, completionUsdPer1M: 60.0 },
       };
@@ -89,9 +89,9 @@ export class ProviderRegistry {
     const model = this.tierDefaults.get(tier);
     if (!model) {
       const fallback =
-        this.tierDefaults.get('tier2') ||
-        this.tierDefaults.get('tier1') ||
-        this.tierDefaults.get('tier3') ||
+        this.tierDefaults.get('flagship') ||
+        this.tierDefaults.get('fast') ||
+        this.tierDefaults.get('reasoning') ||
         Array.from(this.models.values())[0];
       if (!fallback) {
         throw new Error(`No models registered in system.`);
@@ -136,8 +136,8 @@ export class ProviderRegistry {
     let content = 'This is a standard mock response from ' + model.id;
 
     if (isJsonRequested) {
-      // Simulate tier1 occasionally returning slightly malformed JSON or valid JSON
-      if (model.tier === 'tier1' && (request as any).__simulate_malformed__) {
+      // Simulate fast tier occasionally returning slightly malformed JSON or valid JSON
+      if (model.tier === 'fast' && (request as any).__simulate_malformed__) {
         content = '{ "name": "sample", "invalid_json_trailing": ';
       } else {
         content = JSON.stringify({

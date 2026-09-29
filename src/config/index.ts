@@ -15,7 +15,7 @@ const DEFAULT_CONFIG: RouterConfig = {
   fallback: {
     enabled: true,
     maxRetries: 1,
-    escalateTier: 'tier2',
+    escalateTier: 'flagship',
     injectErrorContext: true,
   },
   budget: {

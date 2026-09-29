@@ -30,10 +30,9 @@ describe('Fastify Gateway Server & OpenAI Endpoints', () => {
     assert.strictEqual(body.object, 'list');
     const ids = body.data.map((m: any) => m.id);
     assert.ok(ids.includes('auto'), 'Expected virtual "auto" model');
-    assert.ok(ids.includes('cascading-auto'));
-    assert.ok(ids.includes('tier1-fast'));
-    assert.ok(ids.includes('tier2-flagship'));
-    assert.ok(ids.includes('tier3-reasoning'));
+    assert.ok(ids.includes('auto-fast'));
+    assert.ok(ids.includes('auto-flagship'));
+    assert.ok(ids.includes('auto-reasoning'));
   });
 
   it('GET /v1/models/:model should return single model definition', async () => {
@@ -59,12 +58,10 @@ describe('Fastify Gateway Server & OpenAI Endpoints', () => {
     });
 
     assert.strictEqual(res.statusCode, 200);
-    assert.ok(['tier1', 'tier2'].includes(res.headers['x-ocp-router-tier'] as string));
+    assert.ok(['fast', 'flagship'].includes(res.headers['x-ocp-router-tier'] as string));
     assert.ok(res.headers['x-ocp-router-session-id']);
     assert.ok(res.headers['x-ocp-router-cost-usd']);
     assert.ok(res.headers['x-ocp-router-saved-usd']);
-    // Backward compatibility check
-    assert.ok(['tier1', 'tier2'].includes(res.headers['x-llm-router-tier'] as string));
 
     const body = JSON.parse(res.body);
     assert.strictEqual(body.object, 'chat.completion');

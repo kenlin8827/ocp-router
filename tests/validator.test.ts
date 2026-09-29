@@ -55,7 +55,7 @@ describe('Step 3: Cascading Fallback & Static Schema Assertion', () => {
 
   it('should properly package fallback context with assertion error message', () => {
     const originalReq: ChatCompletionRequest = {
-      model: 'cascading-auto',
+      model: 'auto',
       messages: [{ role: 'user', content: 'Extract name and status as JSON.' }],
     };
 

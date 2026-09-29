@@ -43,7 +43,7 @@ OCP Router replaces simplistic character length rules (e.g., `prompt.length < 20
             ▼                                      ▼                                      ▼
    [Layer 0: Structural Override]       [Layer 1: Local CPU Model]             [Layer 2: Judge Model]
     - Explicit JSON Schema / Tools       - 8 Language-Agnostic Features         - Multi-turn context awareness
-    - Deterministic Tier 1 Dispatch      - Untrained base scaffold (W=0, b=0)   - Statistically calibrated tiers
+    - Deterministic Fast Tier Dispatch   - Untrained base scaffold (W=0, b=0)   - Statistically calibrated tiers
     - Zero-overhead protocol bypass      - Sub-millisecond CPU execution (<0.1ms)  - Decision labels feed flywheel
             │                                      │                                      │
             └──────────────────────────────────────┼──────────────────────────────────────┘
@@ -55,16 +55,16 @@ OCP Router replaces simplistic character length rules (e.g., `prompt.length < 20
                                                    │
                                                    ▼
                     [Step 4: Execution & Cascading Schema Assertion (Fallback)]
-                     ├── Tier 1 Lead ────► [Local AST / JSON Schema Static Assertion]
+                     ├── Fast Lead ─────► [Local AST / JSON Schema Static Assertion]
                      │                      ├── Passed ────► Direct return (90% cost savings)
-                     │                      └── Failed ────► Inject error context & escalate to Tier 2
-                     └── Tier 2/3 Flagship ───────────────► Enforce reasoning token budgets & return
+                     │                      └── Failed ────► Inject error context & escalate to flagship
+                     └── Flagship / Reasoning ────────► Enforce reasoning token budgets & return
 ```
 
 ### Hierarchical Decision Logic
 1. **Layer 0 (Protocol Constraints)**:
    - Detects structural requirements (e.g. `response_format: { type: 'json_object' }` or `tools`).
-   - Dispatches deterministically to Tier 1 fast models as lead runners, backed by local AST assertion with silent escalation.
+   - Dispatches deterministically to fast tier models as lead runners, backed by local AST assertion with silent escalation.
 2. **Layer 1 (CPU Micro-Tensor Classifier)**:
    - Extracts an 8-dimensional language-agnostic feature vector and evaluates linear logits with Softmax on CPU (`<0.1ms`).
    - When confidence $\ge \theta$ (default $0.85$), routes immediately on CPU. When below threshold, falls through to Layer 2.
@@ -84,7 +84,7 @@ $$W \in \mathbb{R}^{8 \times 3} = \mathbf{0}, \quad b \in \mathbb{R}^3 = \mathbf
 For any input feature vector $x \in \mathbb{R}^8$:
 $$z = W^T x + b = \mathbf{0}^T x + \mathbf{0} = \begin{bmatrix} 0 \\ 0 \\ 0 \end{bmatrix}$$
 
-Evaluating Softmax across the three tiers (Tier 1, Tier 2, Tier 3):
+Evaluating Softmax across the three tiers (fast, flagship, reasoning):
 $$P(\text{tier}_i) = \frac{e^{z_i}}{\sum_{j=1}^3 e^{z_j}} = \frac{e^0}{e^0 + e^0 + e^0} = \frac{1}{3} \approx 0.3333$$
 
 **Deterministic Fallthrough Lemma**:

@@ -28,8 +28,8 @@
   - **优势**：不生成冗余文本，输出带有统计校准置信度（Calibrated Probability）的强类型结构，彻底消除传统生成式 Prompt 评估的格式错误与过度自信问题。
   - **职责**：针对 Layer 1 未能高置信度决断的疑难请求进行高精度裁决（时延 ~100-250ms），并兼作后续离线训练的 Teacher 伪标签生成器。
 - **Layer 3: 运行闭环与级联修正 (Runtime Cascade Fallback)**
-  - 运行时真实执行：Tier 1 小模型冲锋 -> 静态 Schema 校验。
-  - 若解析或业务校验失败，静默升级至 Tier 2 旗舰模型并记录降级事件。
+  - 运行时真实执行：fast tier 小模型冲锋 -> 静态 Schema 校验。
+  - 若解析或业务校验失败，静默升级至 flagship tier 旗舰模型并记录降级事件。
 
 ### 2. 数据飞轮闭环 (Active Learning & Distillation Data Flywheel)
 ```mermaid
@@ -48,9 +48,9 @@ flowchart TD
 ```
 
 - **真值标签（Ground Truth）收集机制**：
-  - **降级事件（强负样本）**：当请求在 Tier 1 执行并触发 Schema 校验失败导致 Fallback 升级，该样本必然属于高复杂度任务。
+  - **降级事件（强负样本）**：当请求在 fast tier 执行并触发 Schema 校验失败导致 Fallback 升级，该样本必然属于高复杂度任务。
   - **Teacher 标签**：Layer 2 Jev 做出的高置信度决策作为蒸馏标签。
-  - **正向样本**：Tier 1 一次性成功且无用户即时重试的请求。
+  - **正向样本**：fast tier 一次性成功且无用户即时重试的请求。
 - **本地模型持续迭代**：
   - 定期基于累积的飞轮数据集微调本地小模型，重新更新 `models/layer1-classifier.json` 无缝替换 Layer 1 资产。
   - 最终目标：使 95% 以上的流量在 Layer 0 和 Layer 1（<0.5ms、$0 成本）内精准分流，下沉至 Layer 2 的请求降至 5% 以下。

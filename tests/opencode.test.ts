@@ -20,19 +20,19 @@ describe('OpenCode v2 Connect & Dynamic Model Sync', () => {
     assert.ok(names.some(n => n.includes('Alibaba') || n.includes('DeepSeek') || n.includes('Kimi')));
   });
 
-  it('should dynamically sync models and automatically categorize into Tier 1, 2, and 3', async () => {
+  it('should dynamically sync models and automatically categorize into fast, flagship, and reasoning tiers', async () => {
     const tierModels = await connector.syncToTierModels();
     assert.ok(tierModels.length > 10, 'Expected dozens of active models synced');
 
-    const tier1 = tierModels.filter(m => m.tier === 'tier1');
-    const tier2 = tierModels.filter(m => m.tier === 'tier2');
-    const tier3 = tierModels.filter(m => m.tier === 'tier3');
+    const fast = tierModels.filter(m => m.tier === 'fast');
+    const flagship = tierModels.filter(m => m.tier === 'flagship');
+    const reasoning = tierModels.filter(m => m.tier === 'reasoning');
 
-    assert.ok(tier1.length > 0, 'Tier 1 models should be present');
-    assert.ok(tier2.length > 0, 'Tier 2 models should be present');
-    assert.ok(tier3.length > 0, 'Tier 3 models should be present');
+    assert.ok(fast.length > 0, 'Fast tier models should be present');
+    assert.ok(flagship.length > 0, 'Flagship tier models should be present');
+    assert.ok(reasoning.length > 0, 'Reasoning tier models should be present');
 
     // Check pricing presence
-    assert.ok(tier1[0].pricing.promptUsdPer1M !== undefined);
+    assert.ok(fast[0].pricing.promptUsdPer1M !== undefined);
   });
 });

@@ -42,7 +42,7 @@ $$\text{Softmax}(z) = \left[\frac{e^0}{3}, \frac{e^0}{3}, \frac{e^0}{3}\right] \
 - 最大置信度仅为 $\approx 0.334$；
 - 默认置信度门限阈值 $\theta = 0.85$；
 - 因 $0.334 < 0.85$，`isConfident` 在**数学上严格恒为 `false`**；
-- 缺省绑定安全质量基线：`targetTier: 'tier2'`（绝不会因为字数少而擅自降级给 Tier 1 小模型）；
+- 缺省绑定安全质量基线：`targetTier: 'flagship'`（绝不会因为字数少而擅自降级给 Fast 小模型）；
 - `routeAsync` 依据 `!isConfident`，**100% 确定性直接级联至 Layer 2（TypeSafe Jev / OpenCode 判决模型）**。
 
 ### 4. 数据飞轮闭环自进化 (In-Place Distillation)

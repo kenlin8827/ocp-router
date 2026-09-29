@@ -2,11 +2,11 @@ import { ChatCompletionRequest, ChatMessage } from '../types/openai.js';
 
 export class FallbackContextBuilder {
   /**
-   * Packages error feedback and original context for silent escalation to Tier 2/3
+   * Packages error feedback and original context for silent escalation to flagship/reasoning
    */
   public static buildEscalationRequest(
     originalRequest: ChatCompletionRequest,
-    tier1FailedOutput: string,
+    failedOutput: string,
     validationError: string,
     targetModel: string
   ): ChatCompletionRequest {
@@ -15,7 +15,7 @@ export class FallbackContextBuilder {
     // Append the failed assistant attempt
     updatedMessages.push({
       role: 'assistant',
-      content: tier1FailedOutput,
+      content: failedOutput,
     });
 
     // Append system correction instruction

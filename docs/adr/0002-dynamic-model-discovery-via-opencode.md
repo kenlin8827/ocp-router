@@ -18,9 +18,9 @@ Traditional LLM routing gateways require hardcoding upstream providers, API keys
 3. **Adaptive Price Pyramid & Capability Classification**:
    - Zero vendor or model ID regex string matching (no hardcoded `qwen`, `kimi`, or `gpt` tags).
    - Entirely data-driven dynamic tiering:
-     - **Tier 1 (Fast & Low Cost)**: Input pricing `<= $0.80/1M`, with the lowest-cost model selected dynamically as default lead.
-     - **Tier 2 (General Flagship)**: Median cost range general-purpose models, with median model assigned as flagship lead.
-     - **Tier 3 (Deep Reasoning)**: Filtered dynamically where `capabilities.reasoning === true`, reasoning parameters exist, or input pricing `>= $5.00/1M`.
+     - **Fast ()**: Input pricing `<= $0.80/1M`, with the lowest-cost model selected dynamically as default lead.
+     - **Flagship ()**: Median cost range general-purpose models, with median model assigned as flagship lead.
+     - **Reasoning ()**: Filtered dynamically where `capabilities.reasoning === true`, reasoning parameters exist, or input pricing `>= $5.00/1M`.
 4. **Keyless Proxy Delegation**:
    - All upstream providers are registered as `OpenCodeProxyProvider`, allowing zero-secret, keyless pass-through execution.
 

@@ -55,11 +55,10 @@ export function createServer(
   // 2. OpenAI-compatible Models list
   app.get('/v1/models', async () => {
     const virtualModels = [
-      { id: 'auto', object: 'model', created: 1700000000, owned_by: 'ocp-router', description: 'Intelligent multi-tier cascading auto-router (Recommended)' },
-      { id: 'cascading-auto', object: 'model', created: 1700000000, owned_by: 'ocp-router', description: 'Intelligent multi-tier cascading auto-router' },
-      { id: 'tier1-fast', object: 'model', created: 1700000000, owned_by: 'ocp-router', description: 'Force Tier 1 fast & low-cost (~$0.2/M)' },
-      { id: 'tier2-flagship', object: 'model', created: 1700000000, owned_by: 'ocp-router', description: 'Force Tier 2 flagship (~$3-$15/M)' },
-      { id: 'tier3-reasoning', object: 'model', created: 1700000000, owned_by: 'ocp-router', description: 'Force Tier 3 deep reasoning (~$15-$60/M)' },
+      { id: 'auto', object: 'model', created: 1700000000, owned_by: 'ocp-router', description: 'Intelligent multi-tier cascading auto-router (Recommended Default)' },
+      { id: 'auto-fast', object: 'model', created: 1700000000, owned_by: 'ocp-router', description: 'Force Fast & low-cost layer (~$0.2/M)' },
+      { id: 'auto-flagship', object: 'model', created: 1700000000, owned_by: 'ocp-router', description: 'Force Flagship workhorse layer (~$3-$15/M)' },
+      { id: 'auto-reasoning', object: 'model', created: 1700000000, owned_by: 'ocp-router', description: 'Force Deep Reasoning specialist layer (~$15-$60/M)' },
     ];
 
     const registered = registry.getAllModels().map(m => ({
@@ -84,7 +83,7 @@ export function createServer(
     const { model } = req.params as { model: string };
     const all = registry.getAllModels();
     const found = all.find(m => m.id === model) ||
-      ['auto', 'cascading-auto', 'tier1-fast', 'tier2-flagship', 'tier3-reasoning'].includes(model);
+      ['auto', 'auto-fast', 'auto-flagship', 'auto-reasoning'].includes(model);
 
     if (!found) {
       return reply.status(404).send({
@@ -246,14 +245,14 @@ export function createServer(
     const requestedModel = body.model?.trim() || 'auto';
 
     // Model name routing resolution:
-    // 'auto', 'cascading-auto', 'default' or unconfigured third-party defaults -> full 4-step cascading auto router!
-    if (requestedModel === 'tier1-fast') {
-      body.router_options = { ...body.router_options, force_tier: 'tier1' };
-    } else if (requestedModel === 'tier2-flagship') {
-      body.router_options = { ...body.router_options, force_tier: 'tier2' };
-    } else if (requestedModel === 'tier3-reasoning') {
-      body.router_options = { ...body.router_options, force_tier: 'tier3' };
-    } else if (requestedModel === 'auto' || requestedModel === 'cascading-auto' || requestedModel === 'default') {
+    // 'auto', 'default' or unconfigured third-party defaults -> full 4-step cascading auto router!
+    if (requestedModel === 'auto-fast') {
+      body.router_options = { ...body.router_options, force_tier: 'fast' };
+    } else if (requestedModel === 'auto-flagship') {
+      body.router_options = { ...body.router_options, force_tier: 'flagship' };
+    } else if (requestedModel === 'auto-reasoning') {
+      body.router_options = { ...body.router_options, force_tier: 'reasoning' };
+    } else if (requestedModel === 'auto' || requestedModel === 'default') {
       // Intentionally standard: let RouterEngine 4-step pipeline handle intelligent tier selection
     } else {
       // Check if user specified a concrete physical model registered in the system
@@ -283,17 +282,6 @@ export function createServer(
       reply.header('X-OCP-Router-Saved-USD', result.savedCostUsd.toFixed(6));
       reply.header('X-OCP-Router-Latency-MS', result.latencyMs.toString());
 
-      // Backward Compatibility Aliases
-      reply.header('X-LLM-Router-Tier', tierHeader);
-      reply.header('X-LLM-Router-Layer', result.layerUsed || 'layer0');
-      reply.header('X-LLM-Router-Model', result.modelUsed);
-      reply.header('X-LLM-Router-Session-ID', result.sessionId || '');
-      reply.header('X-LLM-Router-Session-Ratchet', result.sessionRatchetApplied ? 'true' : 'false');
-      reply.header('X-LLM-Router-Trace-ID', result.traceId || '');
-      reply.header('X-LLM-Router-Cost-USD', result.costUsd.toFixed(6));
-      reply.header('X-LLM-Router-Saved-USD', result.savedCostUsd.toFixed(6));
-      reply.header('X-LLM-Router-Latency-MS', result.latencyMs.toString());
-
       // -------------------------------------------------------------
       // SSE Streaming Mode (stream: true)
       // -------------------------------------------------------------
@@ -312,15 +300,6 @@ export function createServer(
           'X-OCP-Router-Cost-USD': result.costUsd.toFixed(6),
           'X-OCP-Router-Saved-USD': result.savedCostUsd.toFixed(6),
           'X-OCP-Router-Latency-MS': result.latencyMs.toString(),
-          'X-LLM-Router-Tier': tierHeader,
-          'X-LLM-Router-Layer': result.layerUsed || 'layer0',
-          'X-LLM-Router-Model': result.modelUsed,
-          'X-LLM-Router-Session-ID': result.sessionId || '',
-          'X-LLM-Router-Session-Ratchet': result.sessionRatchetApplied ? 'true' : 'false',
-          'X-LLM-Router-Trace-ID': result.traceId || '',
-          'X-LLM-Router-Cost-USD': result.costUsd.toFixed(6),
-          'X-LLM-Router-Saved-USD': result.savedCostUsd.toFixed(6),
-          'X-LLM-Router-Latency-MS': result.latencyMs.toString(),
         });
 
         const fullText = result.response.choices[0]?.message?.content || '';

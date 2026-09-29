@@ -41,7 +41,7 @@ export class PipelineOrchestrator {
     this.traceTracker = new TraceTracker();
 
     // Lookup baseline pricing for FinOps dollar calculation
-    const baselineModel = this.registry.getModel(config.baselineModel) || this.registry.getModelForTier('tier2');
+    const baselineModel = this.registry.getModel(config.baselineModel) || this.registry.getModelForTier('flagship');
     this.baselinePricing = baselineModel.pricing;
   }
 
@@ -67,7 +67,7 @@ export class PipelineOrchestrator {
    * 2. Zero-header session identification & prefix fingerprinting
    * 3. Multi-Layer hierarchical routing (Layer 0 -> Layer 1 -> Layer 2)
    * 4. Monotonic Ratchet session state enforcement (escalation only + pinned model for KV Cache protection)
-   * 5. Execution with cascading fallback & schema assertion (Tier 1 lead, Tier 2 fallback)
+   * 5. Execution with cascading fallback & schema assertion (fast lead, flagship fallback)
    * 6. Budget enforcement & FinOps accounting
    * 7. Active learning data flywheel logging
    * 8. Post-turn prefix fingerprint registration
@@ -78,20 +78,20 @@ export class PipelineOrchestrator {
   ): Promise<ExecutionResult> {
     const startTime = Date.now();
 
-    // 1. Optimize message prefix order & resolve model tier aliases
+    // 1. Optimize message prefix order & resolve virtual routing models
     const normalizedMessages = PromptOptimizer.normalizeMessages(request);
     const normalizedRequest: ChatCompletionRequest = {
       ...request,
       messages: normalizedMessages,
     };
 
-    if (request.model === 'tier1-fast') {
-      normalizedRequest.router_options = { ...normalizedRequest.router_options, force_tier: 'tier1' };
-    } else if (request.model === 'tier2-flagship') {
-      normalizedRequest.router_options = { ...normalizedRequest.router_options, force_tier: 'tier2' };
-    } else if (request.model === 'tier3-reasoning') {
-      normalizedRequest.router_options = { ...normalizedRequest.router_options, force_tier: 'tier3' };
-    } else if (request.model && request.model !== 'auto' && request.model !== 'cascading-auto') {
+    if (request.model === 'auto-fast') {
+      normalizedRequest.router_options = { ...normalizedRequest.router_options, force_tier: 'fast' };
+    } else if (request.model === 'auto-flagship') {
+      normalizedRequest.router_options = { ...normalizedRequest.router_options, force_tier: 'flagship' };
+    } else if (request.model === 'auto-reasoning') {
+      normalizedRequest.router_options = { ...normalizedRequest.router_options, force_tier: 'reasoning' };
+    } else if (request.model && request.model !== 'auto') {
       const specific = this.registry.getModel(request.model);
       if (specific) {
         normalizedRequest.router_options = { ...normalizedRequest.router_options, force_tier: specific.tier };
@@ -133,45 +133,45 @@ export class PipelineOrchestrator {
 
     // 5. Execution with Cascading Fallback & Schema Assertion
     if (decision.needsSchemaValidation && this.config.fallback.enabled && !request.router_options?.disable_fallback) {
-      // 5A: Tier 1 lead - Deploy Tier 1 first
-      const tier1Model = this.registry.getModelForTier('tier1');
-      const preparedTier1Req = BudgetManager.applyBudget(
+      // 5A: Fast Tier lead - Deploy Fast Tier first
+      const fastModel = this.registry.getModelForTier('fast');
+      const preparedFastReq = BudgetManager.applyBudget(
         normalizedRequest,
-        tier1Model,
+        fastModel,
         decision,
         this.config.budget
       );
 
-      let tier1Res: ChatCompletionResponse | null = null;
+      let fastRes: ChatCompletionResponse | null = null;
       let assertionPassed = false;
       let assertionError = '';
 
       try {
-        tier1Res = await this.registry.execute(preparedTier1Req, tier1Model);
-        const content = tier1Res.choices[0]?.message?.content || '';
+        fastRes = await this.registry.execute(preparedFastReq, fastModel);
+        const content = fastRes.choices[0]?.message?.content || '';
 
         // Local static AST / Schema assertion (Zero extra LLM cost!)
         const validation = SchemaAssertion.validate(content, normalizedRequest.response_format);
         if (validation.valid) {
           assertionPassed = true;
-          finalResponse = tier1Res;
-          actualTier = 'tier1';
-          actualModel = tier1Model;
+          finalResponse = fastRes;
+          actualTier = 'fast';
+          actualModel = fastModel;
         } else {
           assertionError = validation.error || 'Schema validation assertion failed';
         }
       } catch (err: any) {
-        assertionError = `Tier 1 Execution Error: ${err.message}`;
+        assertionError = `Fast Tier Execution Error: ${err.message}`;
       }
 
-      // 5B: Flagship fallback - If Tier 1 failed assertion, silent escalation to Tier 2/3
+      // 5B: Flagship fallback - If Fast Tier failed assertion, silent escalation to Flagship/Reasoning
       if (!assertionPassed) {
         fallbackOccurred = true;
         fallbackReason = assertionError;
-        const escalateTier = this.config.fallback.escalateTier;
+        const escalateTier = this.config.fallback.escalateTier || 'flagship';
         const flagshipModel = this.registry.getModelForTier(escalateTier);
 
-        const failedContent = tier1Res?.choices[0]?.message?.content || '';
+        const failedContent = fastRes?.choices[0]?.message?.content || '';
         const fallbackReq = FallbackContextBuilder.buildEscalationRequest(
           normalizedRequest,
           failedContent,

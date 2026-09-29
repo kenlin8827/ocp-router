@@ -18,9 +18,9 @@
 3. **自适应动态梯队分层 (Dynamic Tiering Algorithm)**：
    - 不依赖任何特定厂商或模型字符串名称（例如不做 `id.includes('qwen')` 或 `id.includes('kimi')` 的硬编码）。
    - 纯粹基于元数据特征做自适应归类：
-     - **Tier 1 (极速极廉层)**：`inputCost <= $0.8/1M`，并动态选出最低输入成本者作为该层默认冲锋模型。
-     - **Tier 2 (旗舰主力层)**：中位成本通用模型，选出中位数模型作为默认主力。
-     - **Tier 3 (深度推理层)**：具备 `capabilities.reasoning === true`、带有 `thinking/effort` 参数或 `inputCost >= $5.0`。
+     - **Fast ()**：`inputCost <= $0.8/1M`，并动态选出最低输入成本者作为该层默认冲锋模型。
+     - **Flagship ()**：中位成本通用模型，选出中位数模型作为默认主力。
+     - **Reasoning ()**：具备 `capabilities.reasoning === true`、带有 `thinking/effort` 参数或 `inputCost >= $5.0`。
 4. **认证与调用全代理**：
    - 将所有上游 Provider 注册为 OpenCodeProxyProvider，网关无需持有任何第三方云厂商的 API Key，全链路零秘钥安全直通。
 

@@ -66,7 +66,7 @@ export interface ChatCompletionRequest {
 
   // Custom router bypass or debug
   router_options?: {
-    force_tier?: 'tier1' | 'tier2' | 'tier3';
+    force_tier?: 'fast' | 'flagship' | 'reasoning';
     disable_fallback?: boolean;
     session_id?: string;
   };

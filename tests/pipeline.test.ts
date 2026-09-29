@@ -12,34 +12,34 @@ describe('End-to-End Pipeline & FinOps Orchestration', () => {
   const tracker = new FinOpsTracker();
   const orchestrator = new PipelineOrchestrator(config, registry, tracker);
 
-  it('1. Simple chitchat should execute on Tier 1 and record FinOps savings', async () => {
+  it('1. Simple chitchat should execute on Fast tier and record FinOps savings', async () => {
     const req: ChatCompletionRequest = {
-      model: 'tier1-fast',
+      model: 'auto-fast',
       messages: [{ role: 'user', content: 'hello there' }],
     };
 
     const result = await orchestrator.process(req);
-    assert.strictEqual(result.tierUsed, 'tier1');
-    assert.ok(result.costUsd < result.baselineCostUsd, 'Tier 1 cost must be lower than Tier 2 baseline');
+    assert.strictEqual(result.tierUsed, 'fast');
+    assert.ok(result.costUsd < result.baselineCostUsd, 'Fast tier cost must be lower than flagship baseline');
     assert.ok(result.savedCostUsd > 0, 'Saved cost must be positive');
   });
 
-  it('2. Structured schema task with passing Tier 1 output completes with ~90% cost savings', async () => {
+  it('2. Structured schema task with passing fast tier output completes with ~90% cost savings', async () => {
     const req: ChatCompletionRequest = {
-      model: 'cascading-auto',
+      model: 'auto',
       messages: [{ role: 'user', content: 'Extract entities in JSON format.' }],
       response_format: { type: 'json_object' },
     };
 
     const result = await orchestrator.process(req);
-    assert.strictEqual(result.tierUsed, 'tier1');
+    assert.strictEqual(result.tierUsed, 'fast');
     assert.strictEqual(result.fallbackOccurred, false);
     assert.ok(result.savedCostUsd > 0);
   });
 
-  it('3. Structured task with Tier 1 syntax error silently escalates to Tier 2 flagship', async () => {
+  it('3. Structured task with fast tier syntax error silently escalates to flagship', async () => {
     const req: ChatCompletionRequest = {
-      model: 'cascading-auto',
+      model: 'auto',
       messages: [{ role: 'user', content: 'Strict schema extraction.' }],
       response_format: {
         type: 'json_schema',
@@ -47,9 +47,9 @@ describe('End-to-End Pipeline & FinOps Orchestration', () => {
           name: 'StrictTest',
           schema: {
             type: 'object',
-            required: ['mandatory_key_that_fails_on_tier1'],
+            required: ['mandatory_key_that_fails_on_fast_tier'],
             properties: {
-              mandatory_key_that_fails_on_tier1: { type: 'string' },
+              mandatory_key_that_fails_on_fast_tier: { type: 'string' },
             },
           },
         },
@@ -58,7 +58,7 @@ describe('End-to-End Pipeline & FinOps Orchestration', () => {
 
     const result = await orchestrator.process(req);
     assert.strictEqual(result.fallbackOccurred, true);
-    assert.strictEqual(result.tierUsed, 'tier2');
+    assert.strictEqual(result.tierUsed, 'flagship');
     assert.ok(result.fallbackReason?.includes('Missing required key'));
   });
 

@@ -98,13 +98,13 @@ OCP Router 完全兼容 OpenAI 协议标准，只需将客户端的 **API Base U
    ```
    http://127.0.0.1:3000/v1
    ```
-4. 在模型列表输入并勾选推荐虚拟模型：`cascading-auto`。
+4. 在模型列表输入并勾选推荐虚拟模型：`auto`。
 
 ### 2. Chatbox / NextChat / LobeChat
 以 NextChat (ChatGPT-Next-Web) 或 Chatbox 为例：
 1. **接口地址 (API URL)**：`http://127.0.0.1:3000`（或 `http://127.0.0.1:3000/v1`）。
 2. **API Key**：填入任意内容（若在 `config.yaml` 中配置了 `adminApiKey`，则填入该密钥）。
-3. **模型 (Model)**：选择或自定义输入 `cascading-auto`。
+3. **模型 (Model)**：选择或自定义输入 `auto`。
 
 ### 3. Python 官方 SDK
 ```python
@@ -116,7 +116,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="cascading-auto",  # 智能四步级联自动路由
+    model="auto",  # 智能四步级联自动路由
     messages=[
         {"role": "user", "content": "请写一个通用的 TypeScript 防抖函数并附带单元测试。"}
     ]
@@ -136,7 +136,7 @@ const openai = new OpenAI({
 
 async function main() {
   const completion = await openai.chat.completions.create({
-    model: 'cascading-auto',
+    model: 'auto',
     messages: [{ role: 'user', content: '解释量子计算的基本原理。' }],
     stream: true,
   });
@@ -154,7 +154,7 @@ main();
 curl http://127.0.0.1:3000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "cascading-auto",
+    "model": "auto",
     "messages": [
       {"role": "user", "content": "9.11 和 9.8 哪个数字更大？简要解释理由。"}
     ]
@@ -169,10 +169,10 @@ OCP Router 在暴露上游全部原生模型的同时，提供了开箱即用的
 
 | 模型名称 | 定位与适用场景 | 计费成本区间 |
 | :--- | :--- | :--- |
-| **`cascading-auto`** <br>*(强烈推荐默认)* | **全自动智能级联路由**：自动识别任务复杂度、语法规范及多轮对话历史，动态分派最合适且最具性价比的模型。 | 节省 70% ~ 90% |
-| **`tier1-fast`** | **强制指定极速低成本层**：针对大批量浅层信息抽取、日常问候、简单翻译。 | 约 $0.10 ~ $0.50 / M Tokens |
-| **`tier2-flagship`** | **强制指定中坚全能旗舰层**：针对常规系统架构设计、长代码生成与严谨业务分析。 | 约 $2.00 ~ $10.00 / M Tokens |
-| **`tier3-reasoning`** | **强制指定高阶推理专家层**：针对高难度形式化逻辑证明、深思考难题与高复杂度数学演算。 | 约 $5.00 ~ $60.00 / M Tokens |
+| **`auto`** <br>*(强烈推荐默认)* | **全自动智能级联路由**：自动识别任务复杂度、语法规范及多轮对话历史，动态分派最合适且最具性价比的模型。 | 节省 70% ~ 90% |
+| **`auto-fast`** | **强制指定极速低成本层**：针对大批量浅层信息抽取、日常问候、简单翻译。 | 约 $0.10 ~ $0.50 / M Tokens |
+| **`auto-flagship`** | **强制指定中坚全能旗舰层**：针对常规系统架构设计、长代码生成与严谨业务分析。 | 约 $2.00 ~ $10.00 / M Tokens |
+| **`auto-reasoning`** | **强制指定高阶推理专家层**：针对高难度形式化逻辑证明、深思考难题与高复杂度数学演算。 | 约 $5.00 ~ $60.00 / M Tokens |
 | *上游物理模型名* | 直接透传调用上游的具体物理模型（如 `kimi-k2.7-code`, `deepseek-chat`）。 | 按上游标准定价实报实销 |
 
 ---
@@ -181,7 +181,7 @@ OCP Router 在暴露上游全部原生模型的同时，提供了开箱即用的
 
 ### 1. 响应诊断头（Response Headers）
 每次 API 调用均会在 HTTP 响应头中注入详细的 FinOps 性能与成本诊断信息：
-* `X-OCP-Router-Tier`：本次实际承接调用的模型层级（`tier1`, `tier2`, `tier3`）。
+* `X-OCP-Router-Tier`：本次实际承接调用的模型层级（`fast`, `flagship`, `reasoning`）。
 * `X-OCP-Router-Model`：实际承接推理的上游模型 ID（例如 `volcengine/kimi-k2.7-code`）。
 * `X-OCP-Router-Session-ID`：自动计算出的会话唯一哈希指纹。
 * `X-OCP-Router-Session-Ratchet`：是否触发了多轮只升不降棘轮锁死（`true` / `false`）。
@@ -239,9 +239,9 @@ curl http://127.0.0.1:3000/v1/metrics
   "cacheHitRatePct": 32.8,
   "fallbackCount": 18,
   "tierDistribution": {
-    "tier1": { "count": 960, "pct": 75.0 },
-    "tier2": { "count": 270, "pct": 21.09 },
-    "tier3": { "count": 50, "pct": 3.91 }
+    "fast": { "count": 960, "pct": 75.0 },
+    "flagship": { "count": 270, "pct": 21.09 },
+    "reasoning": { "count": 50, "pct": 3.91 }
   },
   "economics": {
     "actualCostUsd": 0.512,
@@ -260,7 +260,7 @@ curl http://127.0.0.1:3000/v1/metrics
 **不需要**。OCP Router 原生直连您本地已经配置并运行良好的 OpenCode v2 实例。OpenCode 中已配置好的所有可用模型和配额，OCP Router 会自动同步并直接代理。
 
 ### Q2: 为什么多轮对话中途不会变笨？
-传统基于单条请求的无状态路由器，在面对超长上下文中的简短追问（如“好的谢谢”、“改下第3行”）时，常因字数极短而错误分发给 Tier 1 轻量小模型，导致小模型面对超万 Token 严重幻觉。OCP Router 采用**单调递增棘轮状态机（Monotonic Session Ratchet）**，一旦会话进入深度旗舰状态，后续轮次被单向锁死、只升不降，且物理固定同一模型实例，保障智力持续高水平并锁定上游 KV Cache。
+传统基于单条请求的无状态路由器，在面对超长上下文中的简短追问（如“好的谢谢”、“改下第3行”）时，常因字数极短而错误分发给 fast 轻量小模型，导致小模型面对超万 Token 严重幻觉。OCP Router 采用**单调递增棘轮状态机（Monotonic Session Ratchet）**，一旦会话进入深度旗舰状态，后续轮次被单向锁死、只升不降，且物理固定同一模型实例，保障智力持续高水平并锁定上游 KV Cache。
 
 ### Q3: 本地分类小模型冷启动时会误判吗？
 **绝不会**。系统默认附带的未训练微张量底座经过严密数学设计（$W=\mathbf{0}, b=\mathbf{0}$），Softmax 理论概率均匀分布为 $\approx 0.334$，必然小于 $0.85$ 门控阈值。在积累足够生产飞轮数据并执行蒸馏微调前，100% 确定性优雅穿透至 Layer 2 专职裁决模型。

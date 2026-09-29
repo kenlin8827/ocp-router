@@ -4,9 +4,9 @@ export interface FinOpsStats {
   totalRequests: number;
   fallbackCount: number;
   tierDistribution: {
-    tier1: { count: number; pct: number };
-    tier2: { count: number; pct: number };
-    tier3: { count: number; pct: number };
+    fast: { count: number; pct: number };
+    flagship: { count: number; pct: number };
+    reasoning: { count: number; pct: number };
   };
   tokens: {
     totalPromptTokens: number;
@@ -22,9 +22,9 @@ export interface FinOpsStats {
   };
   latency: {
     avgMs: number;
-    tier1AvgMs: number;
-    tier2AvgMs: number;
-    tier3AvgMs: number;
+    fastAvgMs: number;
+    flagshipAvgMs: number;
+    reasoningAvgMs: number;
   };
 }
 
@@ -33,15 +33,15 @@ export class FinOpsTracker {
   private fallbackCount = 0;
 
   private tierCounts: Record<TierLevel, number> = {
-    tier1: 0,
-    tier2: 0,
-    tier3: 0,
+    fast: 0,
+    flagship: 0,
+    reasoning: 0,
   };
 
   private tierLatencySum: Record<TierLevel, number> = {
-    tier1: 0,
-    tier2: 0,
-    tier3: 0,
+    fast: 0,
+    flagship: 0,
+    reasoning: 0,
   };
 
   private promptTokens = 0;
@@ -82,31 +82,31 @@ export class FinOpsTracker {
 
   public getStats(): FinOpsStats {
     const total = this.totalRequests || 1;
-    const tier1Count = this.tierCounts.tier1;
-    const tier2Count = this.tierCounts.tier2;
-    const tier3Count = this.tierCounts.tier3;
+    const fastCount = this.tierCounts.fast;
+    const flagshipCount = this.tierCounts.flagship;
+    const reasoningCount = this.tierCounts.reasoning;
 
     const totalSavings = Math.max(0, this.baselineCostUsd - this.actualCostUsd);
     const savingsPct = this.baselineCostUsd > 0 ? (totalSavings / this.baselineCostUsd) * 100 : 0;
 
     const totalLatency =
-      this.tierLatencySum.tier1 + this.tierLatencySum.tier2 + this.tierLatencySum.tier3;
+      this.tierLatencySum.fast + this.tierLatencySum.flagship + this.tierLatencySum.reasoning;
 
     return {
       totalRequests: this.totalRequests,
       fallbackCount: this.fallbackCount,
       tierDistribution: {
-        tier1: {
-          count: tier1Count,
-          pct: Number(((tier1Count / total) * 100).toFixed(2)),
+        fast: {
+          count: fastCount,
+          pct: Number(((fastCount / total) * 100).toFixed(2)),
         },
-        tier2: {
-          count: tier2Count,
-          pct: Number(((tier2Count / total) * 100).toFixed(2)),
+        flagship: {
+          count: flagshipCount,
+          pct: Number(((flagshipCount / total) * 100).toFixed(2)),
         },
-        tier3: {
-          count: tier3Count,
-          pct: Number(((tier3Count / total) * 100).toFixed(2)),
+        reasoning: {
+          count: reasoningCount,
+          pct: Number(((reasoningCount / total) * 100).toFixed(2)),
         },
       },
       tokens: {
@@ -123,9 +123,9 @@ export class FinOpsTracker {
       },
       latency: {
         avgMs: this.totalRequests > 0 ? Math.round(totalLatency / this.totalRequests) : 0,
-        tier1AvgMs: tier1Count > 0 ? Math.round(this.tierLatencySum.tier1 / tier1Count) : 0,
-        tier2AvgMs: tier2Count > 0 ? Math.round(this.tierLatencySum.tier2 / tier2Count) : 0,
-        tier3AvgMs: tier3Count > 0 ? Math.round(this.tierLatencySum.tier3 / tier3Count) : 0,
+        fastAvgMs: fastCount > 0 ? Math.round(this.tierLatencySum.fast / fastCount) : 0,
+        flagshipAvgMs: flagshipCount > 0 ? Math.round(this.tierLatencySum.flagship / flagshipCount) : 0,
+        reasoningAvgMs: reasoningCount > 0 ? Math.round(this.tierLatencySum.reasoning / reasoningCount) : 0,
       },
     };
   }
@@ -133,8 +133,8 @@ export class FinOpsTracker {
   public reset(): void {
     this.totalRequests = 0;
     this.fallbackCount = 0;
-    this.tierCounts = { tier1: 0, tier2: 0, tier3: 0 };
-    this.tierLatencySum = { tier1: 0, tier2: 0, tier3: 0 };
+    this.tierCounts = { fast: 0, flagship: 0, reasoning: 0 };
+    this.tierLatencySum = { fast: 0, flagship: 0, reasoning: 0 };
     this.promptTokens = 0;
     this.cachedPromptTokens = 0;
     this.completionTokens = 0;

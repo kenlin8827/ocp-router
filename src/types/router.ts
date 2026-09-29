@@ -1,6 +1,12 @@
 import { ChatCompletionResponse } from './openai.js';
 
-export type TierLevel = 'tier1' | 'tier2' | 'tier3';
+export type TierLevel = 'fast' | 'flagship' | 'reasoning';
+
+export const TIER_RANK: Record<TierLevel, number> = {
+  fast: 1,
+  flagship: 2,
+  reasoning: 3,
+};
 
 export interface ModelPricing {
   promptUsdPer1M: number;

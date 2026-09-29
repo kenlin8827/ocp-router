@@ -11,9 +11,9 @@ export interface Layer1Prediction {
   confidence: number;
   needsSchemaValidation: boolean;
   probabilities: {
-    tier1: number;
-    tier2: number;
-    tier3: number;
+    fast: number;
+    flagship: number;
+    reasoning: number;
   };
   reason: string;
   isBaseModel?: boolean;
@@ -69,7 +69,7 @@ export const DEFAULT_BASE_MODEL: Layer1ModelWeights = {
     'character_entropy',
     'punctuation_density',
   ],
-  classes: ['tier1', 'tier2', 'tier3'],
+  classes: ['fast', 'flagship', 'reasoning'],
   weights: [
     [0.0, 0.0, 0.0],
     [0.0, 0.0, 0.0],
@@ -284,16 +284,16 @@ export class Layer1Classifier {
     const features = this.extractFeatures(request);
     const needsSchemaValidation = features.metrics.hasToolsOrSchema;
 
-    // 1. Protocol-level structured task: deploy Tier 1 with schema assertion & fallback
+    // 1. Protocol-level structured task: deploy Fast with schema assertion & fallback
     if (needsSchemaValidation) {
       const conf = 0.92;
       return {
         isConfident: conf >= threshold,
-        targetTier: 'tier1',
+        targetTier: 'fast',
         confidence: conf,
         needsSchemaValidation: true,
-        probabilities: { tier1: conf, tier2: 0.06, tier3: 0.02 },
-        reason: 'Structured schema protocol requirement detected; deploying Tier 1 with cascading fallback assertion',
+        probabilities: { fast: conf, flagship: 0.06, reasoning: 0.02 },
+        reason: 'Structured schema protocol requirement detected; deploying fast tier with cascading fallback assertion',
         isBaseModel: this.isBaseModel(),
       };
     }
@@ -303,10 +303,10 @@ export class Layer1Classifier {
       try {
         return {
           isConfident: true,
-          targetTier: 'tier2',
+          targetTier: 'flagship',
           confidence: 0.90,
           needsSchemaValidation,
-          probabilities: { tier1: 0.05, tier2: 0.90, tier3: 0.05 },
+          probabilities: { fast: 0.05, flagship: 0.90, reasoning: 0.05 },
           reason: 'Local ONNX model evaluated decision on CPU',
           isBaseModel: false,
         };
@@ -320,7 +320,7 @@ export class Layer1Classifier {
     const biases = this.loadedModel.biases;
     const x = features.vector;
 
-    // Compute raw logits for 3 classes: [tier1, tier2, tier3]
+    // Compute raw logits for 3 classes: [fast, flagship, reasoning]
     const logits = [biases[0] || 0, biases[1] || 0, biases[2] || 0];
     for (let c = 0; c < 3; c++) {
       for (let f = 0; f < x.length; f++) {
@@ -336,23 +336,23 @@ export class Layer1Classifier {
     const exp2 = Math.exp(logits[2] - maxLogit);
     const expSum = exp0 + exp1 + exp2;
 
-    const pTier1 = Number((exp0 / expSum).toFixed(4));
-    const pTier2 = Number((exp1 / expSum).toFixed(4));
-    const pTier3 = Number((exp2 / expSum).toFixed(4));
+    const pFast = Number((exp0 / expSum).toFixed(4));
+    const pFlagship = Number((exp1 / expSum).toFixed(4));
+    const pReasoning = Number((exp2 / expSum).toFixed(4));
 
     const isBase = this.isBaseModel();
-    let bestTier: TierLevel = 'tier2'; // Safe quality baseline default
-    let maxProb = pTier2;
+    let bestTier: TierLevel = 'flagship'; // Safe quality baseline default
+    let maxProb = pFlagship;
 
-    // For trained models, pick the argmax tier; for untrained base model, default safely to Tier 2
+    // For trained models, pick the argmax tier; for untrained base model, default safely to Flagship
     if (!isBase) {
-      if (pTier1 > maxProb) {
-        bestTier = 'tier1';
-        maxProb = pTier1;
+      if (pFast > maxProb) {
+        bestTier = 'fast';
+        maxProb = pFast;
       }
-      if (pTier3 > maxProb) {
-        bestTier = 'tier3';
-        maxProb = pTier3;
+      if (pReasoning > maxProb) {
+        bestTier = 'reasoning';
+        maxProb = pReasoning;
       }
     }
 
@@ -374,9 +374,9 @@ export class Layer1Classifier {
       confidence: maxProb,
       needsSchemaValidation,
       probabilities: {
-        tier1: pTier1,
-        tier2: pTier2,
-        tier3: pTier3,
+        fast: pFast,
+        flagship: pFlagship,
+        reasoning: pReasoning,
       },
       reason,
       isBaseModel: isBase,
@@ -426,8 +426,8 @@ export class Layer1Classifier {
     const l2 = options.l2 || 0.005;
 
     const numFeatures = DEFAULT_BASE_MODEL.featureDimensions;
-    const numClasses = 3; // tier1: 0, tier2: 1, tier3: 2
-    const tierMap: Record<TierLevel, number> = { tier1: 0, tier2: 1, tier3: 2 };
+    const numClasses = 3; // fast: 0, flagship: 1, reasoning: 2
+    const tierMap: Record<TierLevel, number> = { fast: 0, flagship: 1, reasoning: 2 };
 
     // Initialize weights and biases
     let W: number[][] = Array.from({ length: numFeatures }, () => Array(numClasses).fill(0.0));

@@ -83,10 +83,10 @@ async function run() {
       const res = await fetch(`${BASE_URL}/v1/models`);
       const body = await res.json() as any;
       const hasAuto = body.data?.some((m: any) => m.id === 'auto');
-      const hasCascading = body.data?.some((m: any) => m.id === 'cascading-auto');
+      const hasFast = body.data?.some((m: any) => m.id === 'auto-fast');
       const count = body.data?.length || 0;
-      const ok = res.status === 200 && body.object === 'list' && hasAuto && hasCascading && count >= 50;
-      record('2. OpenAI models catalog (GET /v1/models)', ok, t, `Total models: ${count}, includes 'auto' and 'cascading-auto'`);
+      const ok = res.status === 200 && body.object === 'list' && hasAuto && hasFast && count >= 50;
+      record('2. OpenAI models catalog (GET /v1/models)', ok, t, `Total models: ${count}, includes 'auto', 'auto-fast', 'auto-flagship', 'auto-reasoning'`);
     }
 
     // -------------------------------------------------------------------------
@@ -101,7 +101,7 @@ async function run() {
     }
 
     // -------------------------------------------------------------------------
-    // Test 4: Intelligent routing - Dispatch arithmetic to Tier 1/2
+    // Test 4: Intelligent routing - Dispatch arithmetic to fast/flagship
     // -------------------------------------------------------------------------
     let answer1 = '';
     {
@@ -115,10 +115,10 @@ async function run() {
         }),
       });
       const body = await res.json() as any;
-      const tier = res.headers.get('x-ocp-router-tier') || res.headers.get('x-llm-router-tier');
-      const model = res.headers.get('x-ocp-router-model') || res.headers.get('x-llm-router-model');
+      const tier = res.headers.get('x-ocp-router-tier');
+      const model = res.headers.get('x-ocp-router-model');
       answer1 = body.choices?.[0]?.message?.content?.trim() || '';
-      const ok = res.status === 200 && ['tier1', 'tier2'].includes(tier as string) && answer1.includes('100');
+      const ok = res.status === 200 && ['fast', 'flagship'].includes(tier as string) && answer1.includes('100');
       record('4. Intelligent auto-routing execution (simple arithmetic)', ok, t, `Tier: ${tier}, Model: ${model}, Output: "${answer1}"`);
     }
 
@@ -161,14 +161,14 @@ async function run() {
         }),
       });
       const body = await res.json() as any;
-      const tier = res.headers.get('x-ocp-router-tier') || res.headers.get('x-llm-router-tier');
-      const model = res.headers.get('x-ocp-router-model') || res.headers.get('x-llm-router-model');
-      const ok = res.status === 200 && (tier === 'tier2' || tier === 'tier3');
-      record('6. Intelligent routing Tier 2/3 dispatch (high complexity task)', ok, t, `Detected Tier: ${tier}, Assigned Model: ${model}`);
+      const tier = res.headers.get('x-ocp-router-tier');
+      const model = res.headers.get('x-ocp-router-model');
+      const ok = res.status === 200 && (tier === 'flagship' || tier === 'reasoning');
+      record('6. Intelligent routing Flagship/Reasoning dispatch (high complexity task)', ok, t, `Detected Tier: ${tier}, Assigned Model: ${model}`);
     }
 
     // -------------------------------------------------------------------------
-    // Test 7: Structured schema task (Tier 1 lead + static JSON/Schema assertion)
+    // Test 7: Structured schema task (Fast tier lead + static JSON/Schema assertion)
     // -------------------------------------------------------------------------
     {
       const t = Date.now();
@@ -197,9 +197,9 @@ async function run() {
       } catch {
         isValidJson = false;
       }
-      const tier = res.headers.get('x-ocp-router-tier') || res.headers.get('x-llm-router-tier');
-      const ok = res.status === 200 && isValidJson && tier?.startsWith('tier1');
-      record('7. Structured schema static assertion (Tier 1 lead)', ok, t, `Valid JSON: ${isValidJson}, Extracted: ${JSON.stringify(parsed)}`);
+      const tier = res.headers.get('x-ocp-router-tier');
+      const ok = res.status === 200 && isValidJson && tier?.startsWith('fast');
+      record('7. Structured schema static assertion (Fast tier lead)', ok, t, `Valid JSON: ${isValidJson}, Extracted: ${JSON.stringify(parsed)}`);
     }
 
     // -------------------------------------------------------------------------
@@ -279,8 +279,8 @@ async function run() {
       const t = Date.now();
       const res = await fetch(`${BASE_URL}/v1/metrics`);
       const stats = await res.json() as any;
-      const ok = res.status === 200 && stats.totalRequests >= 5 && stats.tierDistribution.tier1.count > 0;
-      record('10. FinOps real-time economics analytics (GET /v1/metrics)', ok, t, `Total Requests: ${stats.totalRequests}, Tier 1 Traffic: ${stats.tierDistribution.tier1.pct}%, Savings: $${stats.economics.totalSavingsUsd}`);
+      const ok = res.status === 200 && stats.totalRequests >= 5 && stats.tierDistribution.fast.count > 0;
+      record('10. FinOps real-time economics analytics (GET /v1/metrics)', ok, t, `Total Requests: ${stats.totalRequests}, Fast Tier Traffic: ${stats.tierDistribution.fast.pct}%, Savings: $${stats.economics.totalSavingsUsd}`);
     }
 
   } finally {

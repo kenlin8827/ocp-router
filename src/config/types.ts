@@ -24,7 +24,7 @@ export interface ModelRegistration {
 export interface FallbackConfig {
   enabled: boolean;
   maxRetries: number;
-  escalateTier: 'tier2' | 'tier3';
+  escalateTier: 'flagship' | 'reasoning';
   injectErrorContext: boolean;
 }
 

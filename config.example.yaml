@@ -23,18 +23,18 @@ opencode:
 rules:
   - name: "formal_proof"
     pattern: "(proof|theorem|np-hard|np-complete|induction|contradiction)"
-    tier: "tier3"
+    tier: "reasoning"                 # Options: 'fast' | 'flagship' | 'reasoning'
     reason: "Formal theorem or mathematical proof query"
   - name: "system_architecture"
     pattern: "(architecture|microservice|distributed|concurrency|scalability)"
-    tier: "tier2"
+    tier: "flagship"                  # Options: 'fast' | 'flagship' | 'reasoning'
     reason: "System architecture or distributed software engineering query"
 
 # Cascading fallback and static schema assertion
 fallback:
   enabled: true
-  maxRetries: 1                     # Fast Tier 1 model attempts first; silent escalation if assertion fails
-  escalateTier: "tier2"             # Target tier upon validation failure (tier2 flagship or tier3 reasoning)
+  maxRetries: 1                     # Fast tier model attempts first; silent escalation if assertion fails
+  escalateTier: "flagship"          # Target tier upon validation failure ('flagship' or 'reasoning')
   injectErrorContext: true          # Injects parsing error context to guide flagship model to fix in one shot
 
 # FinOps budget and reasoning effort control

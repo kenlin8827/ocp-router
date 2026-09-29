@@ -92,7 +92,7 @@ export class OpenCodeConnector {
   }
 
   /**
-   * Automatically categorize OpenCode models into FinOps Tier 1, Tier 2, and Tier 3
+   * Automatically categorize OpenCode models into FinOps fast, flagship, and reasoning tiers
    * completely dynamically based on pricing and capabilities (Zero Hardcoding!)
    */
   public async syncToTierModels(): Promise<ModelRegistration[]> {
@@ -115,16 +115,16 @@ export class OpenCodeConnector {
       const cachedCost = m.cost?.[0]?.cache?.read ?? inputCost * 0.25;
 
       // 3. Dynamic Tiering based on pricing thresholds, variant types & capabilities
-      let tier: TierLevel = 'tier2';
+      let tier: TierLevel = 'flagship';
       const nameLower = (m.id || '').toLowerCase();
       const isLightweightVariant = /(flash|lite|speed|turbo|mini|fast)/.test(nameLower);
 
       if (isReasoning || inputCost >= 5.0) {
-        tier = 'tier3'; // Deep reasoning layer
+        tier = 'reasoning'; // Deep reasoning layer
       } else if (isLightweightVariant || (inputCost > 0 && inputCost <= 0.8)) {
-        tier = 'tier1'; // Rapid & inexpensive layer
+        tier = 'fast'; // Rapid & inexpensive layer
       } else {
-        tier = 'tier2'; // Flagship layer
+        tier = 'flagship'; // Flagship layer
       }
 
       registered.push({
@@ -150,25 +150,25 @@ export class OpenCodeConnector {
     const externalPlans = registered.filter(m => m.provider !== 'opencode');
     const pool = externalPlans.length > 0 ? externalPlans : registered;
 
-    // Tier 1 Default: lowest input cost model in tier 1
-    const t1 = pool.filter(m => m.tier === 'tier1').sort((a, b) => a.pricing.promptUsdPer1M - b.pricing.promptUsdPer1M);
-    if (t1.length > 0) {
-      t1[0].isDefaultInTier = true;
+    // Fast Tier Default: lowest input cost model in fast tier
+    const tFast = pool.filter(m => m.tier === 'fast').sort((a, b) => a.pricing.promptUsdPer1M - b.pricing.promptUsdPer1M);
+    if (tFast.length > 0) {
+      tFast[0].isDefaultInTier = true;
     }
 
-    // Tier 2 Default: flagship model from pool
-    let t2 = pool.filter(m => m.tier === 'tier2').sort((a, b) => a.pricing.promptUsdPer1M - b.pricing.promptUsdPer1M);
-    if (t2.length === 0) {
-      t2 = pool.filter(m => m.tier !== 'tier3');
+    // Flagship Tier Default: flagship model from pool
+    let tFlagship = pool.filter(m => m.tier === 'flagship').sort((a, b) => a.pricing.promptUsdPer1M - b.pricing.promptUsdPer1M);
+    if (tFlagship.length === 0) {
+      tFlagship = pool.filter(m => m.tier !== 'reasoning');
     }
-    if (t2.length > 0) {
-      t2[Math.floor(t2.length / 2)].isDefaultInTier = true;
+    if (tFlagship.length > 0) {
+      tFlagship[Math.floor(tFlagship.length / 2)].isDefaultInTier = true;
     }
 
-    // Tier 3 Default: top reasoning capability model
-    const t3 = pool.filter(m => m.tier === 'tier3');
-    if (t3.length > 0) {
-      const topReasoning = t3.find(m => m.supportsReasoningEffort) || t3[0];
+    // Reasoning Tier Default: top reasoning capability model
+    const tReasoning = pool.filter(m => m.tier === 'reasoning');
+    if (tReasoning.length > 0) {
+      const topReasoning = tReasoning.find(m => m.supportsReasoningEffort) || tReasoning[0];
       topReasoning.isDefaultInTier = true;
     }
 
