@@ -136,9 +136,10 @@ export class OpenCodeConnector {
         supportsReasoningEffort: isReasoning,
         supportsPromptCaching: true,
         pricing: {
-          promptUsdPer1M: inputCost,
-          cachedPromptUsdPer1M: cachedCost,
-          completionUsdPer1M: outputCost,
+          input: inputCost,
+          output: outputCost,
+          cacheRead: cachedCost,
+          ...(m.cost?.[0]?.cache?.write !== undefined ? { cacheWrite: m.cost[0].cache.write } : {}),
         },
       });
     }
@@ -151,13 +152,13 @@ export class OpenCodeConnector {
     const pool = externalPlans.length > 0 ? externalPlans : registered;
 
     // Fast Tier Default: lowest input cost model in fast tier
-    const tFast = pool.filter(m => m.tier === 'fast').sort((a, b) => a.pricing.promptUsdPer1M - b.pricing.promptUsdPer1M);
+    const tFast = pool.filter(m => m.tier === 'fast').sort((a, b) => a.pricing.input - b.pricing.input);
     if (tFast.length > 0) {
       tFast[0].isDefaultInTier = true;
     }
 
     // Flagship Tier Default: flagship model from pool
-    let tFlagship = pool.filter(m => m.tier === 'flagship').sort((a, b) => a.pricing.promptUsdPer1M - b.pricing.promptUsdPer1M);
+    let tFlagship = pool.filter(m => m.tier === 'flagship').sort((a, b) => a.pricing.input - b.pricing.input);
     if (tFlagship.length === 0) {
       tFlagship = pool.filter(m => m.tier !== 'reasoning');
     }

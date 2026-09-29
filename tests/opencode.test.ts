@@ -33,6 +33,8 @@ describe('OpenCode v2 Connect & Dynamic Model Sync', () => {
     assert.ok(reasoning.length > 0, 'Reasoning tier models should be present');
 
     // Check pricing presence
-    assert.ok(fast[0].pricing.promptUsdPer1M !== undefined);
+    assert.ok(fast[0].pricing.input !== undefined);
+    assert.ok(fast[0].pricing.output !== undefined);
+    assert.ok(fast[0].pricing.cacheRead !== undefined);
   });
 });

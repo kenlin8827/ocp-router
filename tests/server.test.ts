@@ -33,6 +33,12 @@ describe('Fastify Gateway Server & OpenAI Endpoints', () => {
     assert.ok(ids.includes('auto-fast'));
     assert.ok(ids.includes('auto-flagship'));
     assert.ok(ids.includes('auto-reasoning'));
+
+    const physical = body.data.find((m: any) => m.metadata?.pricing);
+    assert.ok(physical, 'Expected physical model with pricing metadata');
+    assert.strictEqual(typeof physical.metadata.pricing.input, 'number');
+    assert.strictEqual(typeof physical.metadata.pricing.output, 'number');
+    assert.strictEqual(typeof physical.metadata.pricing.cacheRead, 'number');
   });
 
   it('GET /v1/models/:model should return single model definition', async () => {

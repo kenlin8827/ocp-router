@@ -11,7 +11,7 @@ describe('Monotonic Session Ratchet & Zero-Header Fingerprinting', () => {
     id: `mock-${tier}-model`,
     provider: `provider-${tier}`,
     realModel: `real-${tier}`,
-    pricing: { promptUsdPer1M: 1, cachedPromptUsdPer1M: 0.1, completionUsdPer1M: 2 },
+    pricing: { input: 1, cacheRead: 0.1, output: 2 },
     supportsStreaming: true,
     supportsTools: true,
     supportsJsonSchema: true,

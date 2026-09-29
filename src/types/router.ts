@@ -9,10 +9,11 @@ export const TIER_RANK: Record<TierLevel, number> = {
 };
 
 export interface ModelPricing {
-  promptUsdPer1M: number;
-  cachedPromptUsdPer1M: number;
-  completionUsdPer1M: number;
-  reasoningUsdPer1M?: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite?: number;
+  reasoning?: number;
 }
 
 export interface TierModelConfig {

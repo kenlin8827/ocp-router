@@ -49,17 +49,17 @@ export class BudgetManager {
     const completionTokens = usage.completion_tokens || 0;
     const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens || 0;
 
-    const promptCost = (uncachedPromptTokens / 1_000_000) * pricing.promptUsdPer1M;
-    const cachedPromptCost = (cachedPromptTokens / 1_000_000) * pricing.cachedPromptUsdPer1M;
+    const promptCost = (uncachedPromptTokens / 1_000_000) * pricing.input;
+    const cachedPromptCost = (cachedPromptTokens / 1_000_000) * pricing.cacheRead;
     
-    // Reasoning tokens might have separate pricing or be included in completion
+    // Reasoning tokens might have separate pricing or be included in completion/output
     let completionCost = 0;
-    if (pricing.reasoningUsdPer1M && reasoningTokens > 0) {
+    if (pricing.reasoning && reasoningTokens > 0) {
       const normalCompletionTokens = Math.max(0, completionTokens - reasoningTokens);
-      completionCost = (normalCompletionTokens / 1_000_000) * pricing.completionUsdPer1M +
-                       (reasoningTokens / 1_000_000) * pricing.reasoningUsdPer1M;
+      completionCost = (normalCompletionTokens / 1_000_000) * pricing.output +
+                       (reasoningTokens / 1_000_000) * pricing.reasoning;
     } else {
-      completionCost = (completionTokens / 1_000_000) * pricing.completionUsdPer1M;
+      completionCost = (completionTokens / 1_000_000) * pricing.output;
     }
 
     return promptCost + cachedPromptCost + completionCost;
@@ -70,8 +70,8 @@ export class BudgetManager {
    */
   public static calculateBaselineCost(usage: Usage | undefined, baselinePricing: ModelPricing): number {
     if (!usage) return 0;
-    const promptCost = (usage.prompt_tokens / 1_000_000) * baselinePricing.promptUsdPer1M;
-    const completionCost = (usage.completion_tokens / 1_000_000) * baselinePricing.completionUsdPer1M;
+    const promptCost = (usage.prompt_tokens / 1_000_000) * baselinePricing.input;
+    const completionCost = (usage.completion_tokens / 1_000_000) * baselinePricing.output;
     return promptCost + completionCost;
   }
 }

@@ -41,7 +41,7 @@ export class ProviderRegistry {
         upstreamModel: 'mock-fast',
         tier: 'fast',
         isDefaultInTier: true,
-        pricing: { promptUsdPer1M: 0.2, cachedPromptUsdPer1M: 0.05, completionUsdPer1M: 0.8 },
+        pricing: { input: 0.2, cacheRead: 0.05, output: 0.8 },
       };
       const mockT2: ModelRegistration = {
         id: 'mock-flagship',
@@ -49,7 +49,7 @@ export class ProviderRegistry {
         upstreamModel: 'mock-flagship',
         tier: 'flagship',
         isDefaultInTier: true,
-        pricing: { promptUsdPer1M: 3.0, cachedPromptUsdPer1M: 0.75, completionUsdPer1M: 12.0 },
+        pricing: { input: 3.0, cacheRead: 0.75, output: 12.0 },
       };
       const mockT3: ModelRegistration = {
         id: 'mock-reasoning',
@@ -57,7 +57,7 @@ export class ProviderRegistry {
         upstreamModel: 'mock-reasoning',
         tier: 'reasoning',
         isDefaultInTier: true,
-        pricing: { promptUsdPer1M: 15.0, cachedPromptUsdPer1M: 3.75, completionUsdPer1M: 60.0 },
+        pricing: { input: 15.0, cacheRead: 3.75, output: 60.0 },
       };
       this.registerModel(mockT1, true);
       this.registerModel(mockT2, true);
