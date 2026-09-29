@@ -1,0 +1,77 @@
+# ==============================================================================
+# OCP Router (OpenCode Proxy Router) & FinOps Gateway Configuration
+# ==============================================================================
+# Notice: Upstream providers, model catalogs, credentials, and pricing models
+# are dynamically synchronized in real-time from the local OpenCode v2 daemon!
+# There is no need to manually hardcode any providers or models list here.
+# ==============================================================================
+
+# Server listening configuration
+port: 3000
+host: "0.0.0.0"
+# adminApiKey: "your-gateway-secret-token" # Optional: Bearer token protecting the gateway
+
+# Local OpenCode daemon connection (Optional)
+# Automatically reads ~/.config/opencode/service.json or OPENCODE_SERVER_URL environment variable by default
+opencode:
+  # url: "http://127.0.0.1:49374"
+  # password: "your-service-password"
+
+# Dynamic domain rules extension (Optional)
+# The gateway has built-in language-agnostic structural, syntax, and statistical features.
+# You can extend custom routing regex rules for specific domain terms:
+rules:
+  - name: "formal_proof"
+    pattern: "(proof|theorem|np-hard|np-complete|induction|contradiction)"
+    tier: "tier3"
+    reason: "Formal theorem or mathematical proof query"
+  - name: "system_architecture"
+    pattern: "(architecture|microservice|distributed|concurrency|scalability)"
+    tier: "tier2"
+    reason: "System architecture or distributed software engineering query"
+
+# Cascading fallback and static schema assertion
+fallback:
+  enabled: true
+  maxRetries: 1                     # Fast Tier 1 model attempts first; silent escalation if assertion fails
+  escalateTier: "tier2"             # Target tier upon validation failure (tier2 flagship or tier3 reasoning)
+  injectErrorContext: true          # Injects parsing error context to guide flagship model to fix in one shot
+
+# FinOps budget and reasoning effort control
+budget:
+  defaultReasoningEffort: "low"     # Constrains reasoning_effort to low/medium on medium tasks
+  enforceReasoningEffortOnMediumTasks: true
+  maxCompletionTokensLimit: 16384   # Prevents runaway loops or excessive token consumption
+
+# ==============================================================================
+# Multi-Layer Classification & Data Flywheel (ADR-0004 & ADR-0005)
+# ==============================================================================
+classifier:
+  # Layer 1: Local micro-tensor CPU model (Sub-millisecond latency, zero extra API cost)
+  localModel:
+    enabled: true                   # Enable Layer 1 local model scaffold
+    modelPath: "./models/layer1-classifier.json"
+    confidenceThreshold: 0.85       # Confidence threshold: >=0.85 serves locally, <0.85 cascades to Layer 2
+
+  # Layer 2: Dedicated context-aware decision model (TypeSafe Jev / OpenCode proxy)
+  layer2:
+    enabled: false                  # Enable Layer 2 dedicated judge model
+    provider: "typesafe"            # Options: 'typesafe' | 'openrouter' | 'opencode'
+    model: "typesafe/jev"           # Non-autoregressive decision model
+    # apiKey: "${TYPESAFE_API_KEY}"
+    timeoutMs: 1500                 # Decision timeout in ms (graceful fallback to Layer 0 on timeout)
+
+# Active Learning Data Flywheel
+flywheel:
+  enabled: true                     # Automatically log routing decisions, execution results, and negative samples
+  datasetPath: "./data/flywheel.jsonl" # Path to JSONL dataset
+  logUserPrompt: true               # Set to false if prompt logging should be omitted for privacy
+
+# ==============================================================================
+# Multi-Turn Monotonic Session Ratchet & KV Cache Protection (ADR-0006)
+# ==============================================================================
+session:
+  enabled: true                     # Enable monotonic ratchet and upstream KV cache protection
+  strategy: "monotonic"             # Options: 'monotonic' (escalate-only, industry gold standard) | 'sticky' | 'stateless'
+  ttlSeconds: 3600                  # Session time-to-live in seconds (default 1 hour)
+  maxSessions: 10000                # Maximum concurrent active sessions in memory LRU cache

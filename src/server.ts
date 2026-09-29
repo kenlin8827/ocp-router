@@ -1,0 +1,384 @@
+import fastify, { FastifyInstance } from 'fastify';
+import cors from '@fastify/cors';
+import { RouterConfig } from './config/types.js';
+import { PipelineOrchestrator } from './pipeline/orchestrator.js';
+import { ProviderRegistry } from './providers/registry.js';
+import { FinOpsTracker } from './metrics/finops-tracker.js';
+import { ChatCompletionRequest } from './types/openai.js';
+
+export function createServer(
+  config: RouterConfig,
+  mockMode = false,
+  customRegistry?: ProviderRegistry,
+  customOrchestrator?: PipelineOrchestrator
+): {
+  app: FastifyInstance;
+  orchestrator: PipelineOrchestrator;
+  registry: ProviderRegistry;
+  tracker: FinOpsTracker;
+} {
+  const app = fastify({
+    logger: {
+      level: process.env.LOG_LEVEL || 'info',
+    },
+  });
+
+  const registry = customRegistry || new ProviderRegistry(config, mockMode);
+  const tracker = customOrchestrator?.getTracker() || new FinOpsTracker();
+  const orchestrator =
+    customOrchestrator || new PipelineOrchestrator(config, registry, tracker);
+
+  // Register CORS to allow any web frontend (Chatbox, NextChat, OpenWebUI)
+  app.register(cors, { origin: true });
+
+  // Optional Admin API Key Authorization hook
+  if (config.adminApiKey) {
+    app.addHook('onRequest', async (req, reply) => {
+      if (req.url === '/health' || req.url === '/v1/models') return;
+      const auth = req.headers.authorization;
+      const token = auth?.replace(/^Bearer\s+/i, '');
+      if (token !== config.adminApiKey) {
+        reply.status(401).send({ error: { message: 'Invalid API Key', type: 'invalid_request_error' } });
+      }
+    });
+  }
+
+  // 1. Health check
+  app.get('/health', async () => {
+    return {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      modelsRegistered: registry.getAllModels().length,
+    };
+  });
+
+  // 2. OpenAI-compatible Models list
+  app.get('/v1/models', async () => {
+    const virtualModels = [
+      { id: 'auto', object: 'model', created: 1700000000, owned_by: 'ocp-router', description: 'Intelligent multi-tier cascading auto-router (Recommended)' },
+      { id: 'cascading-auto', object: 'model', created: 1700000000, owned_by: 'ocp-router', description: 'Intelligent multi-tier cascading auto-router' },
+      { id: 'tier1-fast', object: 'model', created: 1700000000, owned_by: 'ocp-router', description: 'Force Tier 1 fast & low-cost (~$0.2/M)' },
+      { id: 'tier2-flagship', object: 'model', created: 1700000000, owned_by: 'ocp-router', description: 'Force Tier 2 flagship (~$3-$15/M)' },
+      { id: 'tier3-reasoning', object: 'model', created: 1700000000, owned_by: 'ocp-router', description: 'Force Tier 3 deep reasoning (~$15-$60/M)' },
+    ];
+
+    const registered = registry.getAllModels().map(m => ({
+      id: m.id,
+      object: 'model',
+      created: 1700000000,
+      owned_by: m.provider,
+      metadata: {
+        tier: m.tier,
+        pricing: m.pricing,
+      },
+    }));
+
+    return {
+      object: 'list',
+      data: [...virtualModels, ...registered],
+    };
+  });
+
+  // 2B. Single model lookup (OpenAI standard)
+  app.get('/v1/models/:model', async (req, reply) => {
+    const { model } = req.params as { model: string };
+    const all = registry.getAllModels();
+    const found = all.find(m => m.id === model) ||
+      ['auto', 'cascading-auto', 'tier1-fast', 'tier2-flagship', 'tier3-reasoning'].includes(model);
+
+    if (!found) {
+      return reply.status(404).send({
+        error: { message: `Model '${model}' not found`, type: 'invalid_request_error' },
+      });
+    }
+
+    return {
+      id: model,
+      object: 'model',
+      created: 1700000000,
+      owned_by: typeof found === 'object' ? found.provider : 'ocp-router',
+    };
+  });
+
+  // 3. FinOps Economics & Analytics Dashboard
+  app.get('/v1/metrics', async () => {
+    return orchestrator.getTracker().getStats();
+  });
+
+  // Reset metrics
+  app.post('/v1/metrics/reset', async () => {
+    orchestrator.getTracker().reset();
+    return { status: 'ok', message: 'Metrics reset successfully' };
+  });
+
+  // 3B. Active Learning Data Flywheel Statistics
+  app.get('/v1/flywheel/stats', async () => {
+    return orchestrator.getFlywheel()?.getStats() || { status: 'disabled' };
+  });
+
+  // 3C. Active Conversation Sessions Inspection
+  app.get('/v1/sessions', async () => {
+    const sessions = orchestrator.getSessionManager()?.getAllSessions() || [];
+    const traceTracker = orchestrator.getTraceTracker();
+    const data = sessions.map(s => ({
+      ...s,
+      traceCount: traceTracker.getTraceCountForSession(s.id),
+    }));
+    return {
+      object: 'list',
+      total: data.length,
+      data,
+    };
+  });
+
+  // 3D. Single Session Details Query
+  app.get('/v1/sessions/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const session = orchestrator.getSessionManager()?.getSession(id);
+    if (!session) {
+      return reply.status(404).send({
+        error: {
+          message: `Session '${id}' not found`,
+          type: 'invalid_request_error',
+        },
+      });
+    }
+
+    const traces = orchestrator.getTraceTracker().getTracesBySession(id);
+    return {
+      object: 'session',
+      ...session,
+      traceCount: traces.length,
+      recentTraces: traces.slice(-5),
+    };
+  });
+
+  // 3E. Delete / Reset Single Session
+  app.delete('/v1/sessions/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const sessionMgr = orchestrator.getSessionManager();
+    const existed = sessionMgr?.deleteSession(id);
+    orchestrator.getTraceTracker().deleteBySession(id);
+
+    if (!existed) {
+      return reply.status(404).send({
+        error: {
+          message: `Session '${id}' not found`,
+          type: 'invalid_request_error',
+        },
+      });
+    }
+
+    return {
+      status: 'ok',
+      message: `Session '${id}' and its traces have been successfully cleared`,
+    };
+  });
+
+  // 3F. Query Trajectory / Traces by Session ID
+  app.get('/v1/sessions/:id/traces', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const session = orchestrator.getSessionManager()?.getSession(id);
+    const traces = orchestrator.getTraceTracker().getTracesBySession(id);
+    
+    // Return empty list or session trajectory
+    return {
+      object: 'list',
+      sessionId: id,
+      sessionExists: Boolean(session),
+      total: traces.length,
+      data: traces,
+    };
+  });
+
+  // 3G. Global Request Trajectory Queries (with optional session_id filter & pagination)
+  app.get('/v1/traces', async (req) => {
+    const query = req.query as { session_id?: string; limit?: string; offset?: string };
+    const limit = query.limit ? parseInt(query.limit, 10) : 50;
+    const offset = query.offset ? parseInt(query.offset, 10) : 0;
+
+    const result = orchestrator.getTraceTracker().getRecentTraces({
+      sessionId: query.session_id,
+      limit,
+      offset,
+    });
+
+    return {
+      object: 'list',
+      total: result.total,
+      limit,
+      offset,
+      data: result.data,
+    };
+  });
+
+  // 3H. Query Single Execution Trace by traceId
+  app.get('/v1/traces/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const trace = orchestrator.getTraceTracker().getTrace(id);
+    if (!trace) {
+      return reply.status(404).send({
+        error: {
+          message: `Trace '${id}' not found`,
+          type: 'invalid_request_error',
+        },
+      });
+    }
+    return {
+      object: 'trace',
+      ...trace,
+    };
+  });
+
+  // 4. OpenAI-compatible Chat Completions
+  app.post('/v1/chat/completions', async (req, reply) => {
+    const body = req.body as ChatCompletionRequest;
+
+    if (!body || !body.messages || !Array.isArray(body.messages)) {
+      return reply.status(400).send({
+        error: {
+          message: 'Invalid request: "messages" array is required.',
+          type: 'invalid_request_error',
+        },
+      });
+    }
+
+    const requestedModel = body.model?.trim() || 'auto';
+
+    // Model name routing resolution:
+    // 'auto', 'cascading-auto', 'default' or unconfigured third-party defaults -> full 4-step cascading auto router!
+    if (requestedModel === 'tier1-fast') {
+      body.router_options = { ...body.router_options, force_tier: 'tier1' };
+    } else if (requestedModel === 'tier2-flagship') {
+      body.router_options = { ...body.router_options, force_tier: 'tier2' };
+    } else if (requestedModel === 'tier3-reasoning') {
+      body.router_options = { ...body.router_options, force_tier: 'tier3' };
+    } else if (requestedModel === 'auto' || requestedModel === 'cascading-auto' || requestedModel === 'default') {
+      // Intentionally standard: let RouterEngine 4-step pipeline handle intelligent tier selection
+    } else {
+      // Check if user specified a concrete physical model registered in the system
+      const specificModel = registry.getModel(requestedModel);
+      if (specificModel) {
+        body.router_options = { ...body.router_options, force_tier: specificModel.tier };
+      }
+      // If client sent common client default like 'gpt-3.5-turbo' or 'gpt-4', default to 'auto'
+    }
+
+    try {
+      const result = await orchestrator.process(body, {
+        clientIp: req.ip,
+        headers: req.headers,
+      });
+
+      const tierHeader = result.tierUsed + (result.fallbackOccurred ? '-escalated' : '');
+
+      // Primary OCP-Router Headers
+      reply.header('X-OCP-Router-Tier', tierHeader);
+      reply.header('X-OCP-Router-Layer', result.layerUsed || 'layer0');
+      reply.header('X-OCP-Router-Model', result.modelUsed);
+      reply.header('X-OCP-Router-Session-ID', result.sessionId || '');
+      reply.header('X-OCP-Router-Session-Ratchet', result.sessionRatchetApplied ? 'true' : 'false');
+      reply.header('X-OCP-Router-Trace-ID', result.traceId || '');
+      reply.header('X-OCP-Router-Cost-USD', result.costUsd.toFixed(6));
+      reply.header('X-OCP-Router-Saved-USD', result.savedCostUsd.toFixed(6));
+      reply.header('X-OCP-Router-Latency-MS', result.latencyMs.toString());
+
+      // Backward Compatibility Aliases
+      reply.header('X-LLM-Router-Tier', tierHeader);
+      reply.header('X-LLM-Router-Layer', result.layerUsed || 'layer0');
+      reply.header('X-LLM-Router-Model', result.modelUsed);
+      reply.header('X-LLM-Router-Session-ID', result.sessionId || '');
+      reply.header('X-LLM-Router-Session-Ratchet', result.sessionRatchetApplied ? 'true' : 'false');
+      reply.header('X-LLM-Router-Trace-ID', result.traceId || '');
+      reply.header('X-LLM-Router-Cost-USD', result.costUsd.toFixed(6));
+      reply.header('X-LLM-Router-Saved-USD', result.savedCostUsd.toFixed(6));
+      reply.header('X-LLM-Router-Latency-MS', result.latencyMs.toString());
+
+      // -------------------------------------------------------------
+      // SSE Streaming Mode (stream: true)
+      // -------------------------------------------------------------
+      if (body.stream) {
+        reply.raw.writeHead(200, {
+          'Content-Type': 'text/event-stream; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform',
+          Connection: 'keep-alive',
+          'Access-Control-Allow-Origin': '*',
+          'X-OCP-Router-Tier': tierHeader,
+          'X-OCP-Router-Layer': result.layerUsed || 'layer0',
+          'X-OCP-Router-Model': result.modelUsed,
+          'X-OCP-Router-Session-ID': result.sessionId || '',
+          'X-OCP-Router-Session-Ratchet': result.sessionRatchetApplied ? 'true' : 'false',
+          'X-OCP-Router-Trace-ID': result.traceId || '',
+          'X-OCP-Router-Cost-USD': result.costUsd.toFixed(6),
+          'X-OCP-Router-Saved-USD': result.savedCostUsd.toFixed(6),
+          'X-OCP-Router-Latency-MS': result.latencyMs.toString(),
+          'X-LLM-Router-Tier': tierHeader,
+          'X-LLM-Router-Layer': result.layerUsed || 'layer0',
+          'X-LLM-Router-Model': result.modelUsed,
+          'X-LLM-Router-Session-ID': result.sessionId || '',
+          'X-LLM-Router-Session-Ratchet': result.sessionRatchetApplied ? 'true' : 'false',
+          'X-LLM-Router-Trace-ID': result.traceId || '',
+          'X-LLM-Router-Cost-USD': result.costUsd.toFixed(6),
+          'X-LLM-Router-Saved-USD': result.savedCostUsd.toFixed(6),
+          'X-LLM-Router-Latency-MS': result.latencyMs.toString(),
+        });
+
+        const fullText = result.response.choices[0]?.message?.content || '';
+        const id = result.response.id || `chatcmpl-${Date.now()}`;
+        const created = result.response.created || Math.floor(Date.now() / 1000);
+        const model = result.modelUsed;
+
+        // 1. Initial role chunk
+        const roleChunk = {
+          id,
+          object: 'chat.completion.chunk',
+          created,
+          model,
+          choices: [{ index: 0, delta: { role: 'assistant', content: '' }, finish_reason: null }],
+        };
+        reply.raw.write(`data: ${JSON.stringify(roleChunk)}\n\n`);
+
+        // 2. Stream content deltas in chunks
+        const chunkSize = 4;
+        for (let i = 0; i < fullText.length; i += chunkSize) {
+          const chunkStr = fullText.slice(i, i + chunkSize);
+          const chunk = {
+            id,
+            object: 'chat.completion.chunk',
+            created,
+            model,
+            choices: [{ index: 0, delta: { content: chunkStr }, finish_reason: null }],
+          };
+          reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+        }
+
+        // 3. Final stop chunk
+        const stopChunk = {
+          id,
+          object: 'chat.completion.chunk',
+          created,
+          model,
+          choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+          usage: result.response.usage,
+        };
+        reply.raw.write(`data: ${JSON.stringify(stopChunk)}\n\n`);
+        reply.raw.write('data: [DONE]\n\n');
+        reply.raw.end();
+        return reply;
+      }
+
+      // Non-streaming standard JSON response
+      return reply.send(result.response);
+    } catch (err: any) {
+      req.log.error(err, 'Chat completion execution failed');
+      return reply.status(500).send({
+        error: {
+          message: err.message || 'Internal Router Error',
+          type: 'api_error',
+        },
+      });
+    }
+  });
+
+  return { app, orchestrator, registry, tracker };
+}

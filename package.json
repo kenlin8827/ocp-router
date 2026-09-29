@@ -1,0 +1,44 @@
+{
+  "name": "ocp-router",
+  "version": "1.0.0",
+  "description": "High-performance OpenCode Proxy Router & Cascading Gateway",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "dev:bun": "bun --watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "start:bun": "bun src/index.ts",
+    "test": "tsx --test tests/**/*.test.ts",
+    "test:bun": "bun test",
+    "test:system": "bun run scripts/full-system-test.ts",
+    "train:layer1": "bun run scripts/train-layer1-classifier.ts",
+    "flywheel:stats": "bun run scripts/flywheel-stats.ts"
+  },
+  "keywords": [
+    "llm",
+    "router",
+    "finops",
+    "cascading",
+    "openai-proxy",
+    "semantic-cache",
+    "deepseek",
+    "anthropic"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "fastify": "^5.2.1",
+    "@fastify/cors": "^11.0.0",
+    "dotenv": "^16.4.7",
+    "yaml": "^2.7.0",
+    "zod": "^3.24.2",
+    "zod-to-json-schema": "^3.24.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  }
+}

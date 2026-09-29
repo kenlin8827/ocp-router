@@ -1,0 +1,35 @@
+{
+  "version": "1.0.0",
+  "modelType": "linear_softmax_classifier",
+  "description": "Language-agnostic micro CPU classifier scaffold for ocp-router Layer 1",
+  "isBaseModel": true,
+  "sampleCount": 0,
+  "lastTrainedAt": null,
+  "featureDimensions": 8,
+  "featureNames": [
+    "token_count_normalized",
+    "turn_count_normalized",
+    "has_system_prompt",
+    "code_block_ratio",
+    "syntax_symbol_density",
+    "has_tools_or_schema",
+    "character_entropy",
+    "punctuation_density"
+  ],
+  "classes": [
+    "tier1",
+    "tier2",
+    "tier3"
+  ],
+  "weights": [
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0]
+  ],
+  "biases": [0, 0, 0]
+}
