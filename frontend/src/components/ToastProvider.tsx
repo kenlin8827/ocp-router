@@ -71,7 +71,8 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           position: 'fixed',
           top: 16,
           right: 16,
-          zIndex: 300,
+          // Topmost layer — above the global confirm dialog (300)
+          zIndex: 400,
           display: 'flex',
           flexDirection: 'column',
           gap: 8,

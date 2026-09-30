@@ -24,6 +24,7 @@ import { api, type GatewayStatusResponse } from '../lib/api';
 import { useI18n } from '../i18n/I18nContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
+import { Combobox } from './Combobox';
 
 interface NavItemDef {
   to: string;
@@ -422,18 +423,18 @@ export const Layout: React.FC = () => {
             </button>
 
             {/* Theme Picker */}
-            <select
-              value={theme}
-              onChange={e => setTheme(e.target.value)}
-              className="input"
+            <Combobox
               style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', cursor: 'pointer' }}
-            >
-              <option value="obsidian">{t('header.themes.obsidian')}</option>
-              <option value="indigo">{t('header.themes.indigo')}</option>
-              <option value="cyber">{t('header.themes.cyber')}</option>
-              <option value="sunset">{t('header.themes.sunset')}</option>
-              <option value="light">{t('header.themes.light')}</option>
-            </select>
+              value={theme}
+              onChange={setTheme}
+              options={[
+                { value: 'obsidian', label: t('header.themes.obsidian') },
+                { value: 'indigo', label: t('header.themes.indigo') },
+                { value: 'cyber', label: t('header.themes.cyber') },
+                { value: 'sunset', label: t('header.themes.sunset') },
+                { value: 'light', label: t('header.themes.light') },
+              ]}
+            />
 
             {/* Quick Actions */}
             <button className="btn" onClick={handleRestartGateway} title={t('header.restart')}>

@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, HelpCircle } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
+import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 
 export interface ConfirmOptions {
   title: string;
@@ -9,6 +10,8 @@ export interface ConfirmOptions {
   danger?: boolean;
   confirmLabel?: string;
   cancelLabel?: string;
+  /** Opt-in: blur the page behind the overlay. Default: dim only, no blur. */
+  blur?: boolean;
 }
 
 export type ConfirmFn = (options: ConfirmOptions) => Promise<boolean>;
@@ -30,6 +33,7 @@ export const ConfirmProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const { t } = useI18n();
   const [active, setActive] = useState<ActiveConfirm | null>(null);
   const activeRef = useRef<ActiveConfirm | null>(null);
+  useBodyScrollLock(!!active);
 
   const confirm = useCallback<ConfirmFn>((options) => {
     return new Promise<boolean>((resolve) => {
@@ -70,9 +74,10 @@ export const ConfirmProvider: React.FC<{ children: React.ReactNode }> = ({ child
           style={{
             position: 'fixed',
             inset: 0,
-            zIndex: 200,
-            background: 'rgba(0, 0, 0, 0.75)',
-            backdropFilter: 'blur(8px)',
+            // Above ALL feature dialogs (page modals 100 / dialogs 200 / nested 210)
+            zIndex: 300,
+            background: 'rgba(0, 0, 0, 0.85)',
+            backdropFilter: o?.blur ? 'blur(8px)' : undefined,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',

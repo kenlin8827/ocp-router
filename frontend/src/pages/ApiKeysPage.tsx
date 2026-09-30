@@ -15,6 +15,8 @@ import { api, type ApiKeyItem } from '../lib/api';
 import { useI18n } from '../i18n/I18nContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
+import { useBodyScrollLock } from '../lib/useBodyScrollLock';
+import { Combobox } from '../components/Combobox';
 
 export const ApiKeysPage: React.FC = () => {
   const { t } = useI18n();
@@ -37,6 +39,7 @@ export const ApiKeysPage: React.FC = () => {
   // Newly created key display modal
   const [createdKey, setCreatedKey] = useState<ApiKeyItem | null>(null);
   const [newKeyCopied, setNewKeyCopied] = useState(false);
+  useBodyScrollLock(showCreateModal || !!createdKey);
 
   // Active tab for quick connect code examples
   const [connectTab, setConnectTab] = useState<'cursor' | 'python' | 'curl'>('cursor');
@@ -519,8 +522,7 @@ print(response.choices[0].message.content)`
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(0, 0, 0, 0.75)',
-            backdropFilter: 'blur(8px)',
+            background: 'rgba(0, 0, 0, 0.85)',
             zIndex: 100,
             display: 'flex',
             alignItems: 'center',
@@ -590,15 +592,15 @@ print(response.choices[0].message.content)`
                 <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-dim)', display: 'block', marginBottom: '6px' }}>
                   {t('apiKeys.roleLabel')}
                 </label>
-                <select
-                  value={formRole}
-                  onChange={(e) => setFormRole(e.target.value as any)}
-                  className="input"
+                <Combobox
                   style={{ cursor: 'pointer' }}
-                >
-                  <option value="user">{t('apiKeys.roleUser')}</option>
-                  <option value="admin">{t('apiKeys.roleAdmin')}</option>
-                </select>
+                  value={formRole}
+                  onChange={(v) => setFormRole(v as 'admin' | 'user')}
+                  options={[
+                    { value: 'user', label: t('apiKeys.roleUser') },
+                    { value: 'admin', label: t('apiKeys.roleAdmin') },
+                  ]}
+                />
               </div>
 
               <div>
@@ -634,8 +636,7 @@ print(response.choices[0].message.content)`
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(0, 0, 0, 0.75)',
-            backdropFilter: 'blur(8px)',
+            background: 'rgba(0, 0, 0, 0.85)',
             zIndex: 100,
             display: 'flex',
             alignItems: 'center',
