@@ -5,6 +5,7 @@ import { ProviderRegistry } from '../src/providers/registry.js';
 import { FinOpsTracker } from '../src/metrics/finops-tracker.js';
 import { PipelineOrchestrator } from '../src/pipeline/orchestrator.js';
 import { createServer } from '../src/server.js';
+import { ErrorClassifier, UpstreamError } from '../src/resilience/index.js';
 
 describe('Resilience: Cost-Aware In-Place Retry & KV Cache Preservation (ADR-0009)', () => {
   const baseConfig: RouterConfig = {
@@ -400,3 +401,124 @@ describe('Resilience: End-to-End HTTP Headers & Observability', () => {
     assert.equal(res.headers['x-ocr-breaker-state'], 'CLOSED');
   });
 });
+
+describe('Resilience: Fine-Grained Network Jitter Taxonomy & Cause Filtering (ADR-0009)', () => {
+  it('should accurately diagnose specific network jitter causes and in-place retriability', () => {
+    // 1. Connection reset
+    const errReset = new Error('read ECONNRESET: socket hang up');
+    const diagReset = ErrorClassifier.classify(errReset, 'gpt-4o', 'openai');
+    assert.equal(diagReset.networkCause, 'CONNECTION_RESET');
+    assert.equal(diagReset.isInPlaceRetriable, true);
+
+    // 2. Network Timeout
+    const errTimeout = new Error('fetch failed: ETIMEDOUT connection timeout');
+    const diagTimeout = ErrorClassifier.classify(errTimeout, 'claude-3-5-sonnet', 'anthropic');
+    assert.equal(diagTimeout.networkCause, 'NETWORK_TIMEOUT');
+    assert.equal(diagTimeout.isInPlaceRetriable, true);
+
+    // 3. Gateway 502 / 503
+    const err502 = new UpstreamError({ message: 'Bad Gateway', status: 502, modelId: 'gpt-4o' });
+    const diag502 = ErrorClassifier.classify(err502, 'gpt-4o', 'openai');
+    assert.equal(diag502.networkCause, 'GATEWAY_ERROR');
+    assert.equal(diag502.isInPlaceRetriable, true);
+
+    // 4. Rate limit short burst (<= 2s) -> In-place retriable!
+    const err429Short = new UpstreamError({
+      message: 'Rate limit exceeded',
+      status: 429,
+      retryAfterSeconds: 1,
+      modelId: 'gpt-4o-mini',
+    });
+    const diag429Short = ErrorClassifier.classify(err429Short, 'gpt-4o-mini', 'openai');
+    assert.equal(diag429Short.networkCause, 'RATE_LIMIT_BURST');
+    assert.equal(diag429Short.isInPlaceRetriable, true);
+
+    // 5. Rate limit long burst (> 2s) -> NOT in-place retriable (failover immediately)
+    const err429Long = new UpstreamError({
+      message: 'Rate limit exceeded',
+      status: 429,
+      retryAfterSeconds: 30,
+      modelId: 'gpt-4o-mini',
+    });
+    const diag429Long = ErrorClassifier.classify(err429Long, 'gpt-4o-mini', 'openai');
+    assert.equal(diag429Long.isInPlaceRetriable, false);
+
+    // 6. Hard failure (402, 401, 400) -> NEVER in-place retriable
+    const err402 = new UpstreamError({ message: 'insufficient_quota', status: 402, modelId: 'gpt-4o' });
+    const diag402 = ErrorClassifier.classify(err402, 'gpt-4o', 'openai');
+    assert.equal(diag402.networkCause, 'HARD_FAILURE');
+    assert.equal(diag402.isInPlaceRetriable, false);
+
+    // 7. Server internal error (500) -> NOT in-place retriable by default
+    const err500 = new UpstreamError({ message: 'Internal Server Error', status: 500, modelId: 'gpt-4o' });
+    const diag500 = ErrorClassifier.classify(err500, 'gpt-4o', 'openai');
+    assert.equal(diag500.networkCause, 'SERVER_INTERNAL_ERROR');
+    assert.equal(diag500.isInPlaceRetriable, false);
+  });
+
+  it('should respect custom retryOnCauses filter in configuration', async () => {
+    // Only allow 'network_timeout', disallow 'gateway_error'
+    const customConfig: RouterConfig = {
+      port: 3000,
+      host: '127.0.0.1',
+      baselineModel: 'model-a',
+      fallback: { enabled: false, maxRetries: 1, escalateTier: 'flagship', injectErrorContext: false },
+      budget: { defaultReasoningEffort: 'low', enforceReasoningEffortOnMediumTasks: false },
+      circuitBreaker: { enabled: true, failureThreshold: 2 },
+      retry: {
+        enabled: true,
+        inplace: {
+          enabled: true,
+          maxAttempts: 1,
+          backoffMs: 10,
+          jitterMs: 5,
+          retryOnCauses: ['network_timeout'], // Only in-place retry on timeouts!
+        },
+        failover: {
+          enabled: true,
+          maxAttempts: 2,
+          tierCrossPolicy: 'same_tier_only',
+        },
+      },
+      models: [
+        {
+          id: 'model-a',
+          provider: 'mock',
+          upstreamModel: 'model-a',
+          tier: 'flagship',
+          priority: 1,
+          isDefaultInTier: true,
+          pricing: { input: 3.0, cacheRead: 0.3, output: 15.0 },
+        },
+        {
+          id: 'model-b',
+          provider: 'mock',
+          upstreamModel: 'model-b',
+          tier: 'flagship',
+          priority: 2,
+          pricing: { input: 3.0, cacheRead: 0.3, output: 15.0 },
+        },
+      ],
+    };
+
+    const registry = new ProviderRegistry(customConfig, true);
+    const tracker = new FinOpsTracker();
+    const orchestrator = new PipelineOrchestrator(customConfig, registry, tracker);
+
+    // 503 is GATEWAY_ERROR. Since retryOnCauses only contains 'network_timeout',
+    // it must NOT in-place retry on model-a and should immediately failover to model-b!
+    const req: any = {
+      model: 'auto-flagship',
+      messages: [{ role: 'user', content: 'Test custom cause filtering' }],
+      __simulate_error_model__: 'model-a',
+      __simulate_status__: 503,
+      __simulate_fail_times__: 1,
+    };
+
+    const result = await orchestrator.process(req);
+    assert.equal(result.modelUsed, 'model-b');
+    assert.equal(result.failoverOccurred, true);
+    assert.equal(result.inplaceRetries, 0); // 0 in-place retries because 503 wasn't in retryOnCauses!
+  });
+});
+

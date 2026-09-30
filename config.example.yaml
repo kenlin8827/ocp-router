@@ -100,10 +100,19 @@ retry:
   enabled: true                     # Enable two-tier cost-aware retry strategy
   # Tier 1: In-Place Retry (Preserve Upstream KV Prompt Cache, Prevent 10x Cost Explosion)
   inplace:
-    enabled: true                   # Enable in-place retry on the same model for transient 5xx/network errors
+    enabled: true                   # Enable in-place retry on the same model for transient network jitter
     maxAttempts: 1                  # Max in-place attempts (1 retry solves ~70% gateway blips & saves KV cache)
     backoffMs: 200                  # Initial backoff duration in ms
     jitterMs: 100                   # Random jitter in ms to avoid thundering herd
+    maxRateLimitWaitMs: 2000        # Max wait for short 429 bursts (<= 2s wait in-place saves KV cache; > 2s triggers immediate failover)
+    # Whitelist of network failure causes eligible for in-place retry:
+    retryOnCauses:
+      - "connection_reset"          # ECONNRESET, ECONNABORTED, socket hang up, EPIPE
+      - "network_timeout"           # ETIMEDOUT, ESOCKETTIMEDOUT, 504 Gateway Timeout
+      - "gateway_error"             # 502 Bad Gateway, 503 Service Unavailable, Cloudflare 52x
+      - "rate_limit_burst"          # HTTP 429 when Retry-After <= maxRateLimitWaitMs
+      - "dns_error"                 # EAI_AGAIN transient DNS resolution jitter
+      # - "server_internal_error"   # HTTP 500 (disabled by default; rarely resolved by immediate retry)
   # Tier 2: Failover (Multi-Model Candidate Pool & Tier Crossing Policy)
   failover:
     enabled: true                   # Enable failover to secondary backup models

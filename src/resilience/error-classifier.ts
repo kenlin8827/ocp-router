@@ -1,4 +1,11 @@
-import { ErrorCategory, ErrorDiagnosis, CircuitBreakerConfig } from './types.js';
+import {
+  ErrorCategory,
+  ErrorDiagnosis,
+  CircuitBreakerConfig,
+  NetworkFailureCause,
+  RetriableCauseConfig,
+  RetryConfig,
+} from './types.js';
 
 export class UpstreamError extends Error {
   public status?: number;
@@ -30,18 +37,36 @@ export class ErrorClassifier {
    * Industrial-grade LLM upstream error classification & diagnosis engine.
    * Categorizes errors into actionable resilience decisions:
    * - Hard Trip (e.g. 402 Quota Exhausted / 401 Auth)
-   * - Sliding window failure count (5xx / Connection timeout / 5h downtime)
-   * - Transient backoff (429 Rate limit)
+   * - Fine-grained Network Jitter (Timeout, Connection Reset, Gateway 502/503, DNS)
+   * - In-place retriable check to preserve upstream KV cache
+   * - Transient backoff (429 Rate limit burst)
    * - Non-penalizing pass-through (400 Client error / context length exceeded)
    */
   public static classify(
     error: any,
     modelId: string,
     provider: string,
-    config?: CircuitBreakerConfig
+    circuitConfig?: CircuitBreakerConfig,
+    retryConfig?: RetryConfig
   ): ErrorDiagnosis {
-    const quotaCooldown = config?.quotaCooldownMs || 12 * 3600 * 1000; // default: 12 hours
-    const defaultInitialCooldown = config?.initialCooldownMs || 30 * 1000; // default: 30s
+    const quotaCooldown = circuitConfig?.quotaCooldownMs || 12 * 3600 * 1000; // default: 12 hours
+    const defaultInitialCooldown = circuitConfig?.initialCooldownMs || 30 * 1000; // default: 30s
+    const maxRateLimitWaitMs = retryConfig?.inplace?.maxRateLimitWaitMs ?? 2000; // default: 2s
+
+    // Helper: checks if this failure cause is whitelisted for in-place retry
+    const isCauseInPlaceRetriable = (cause: RetriableCauseConfig): boolean => {
+      if (retryConfig?.enabled === false || retryConfig?.inplace?.enabled === false) {
+        return false;
+      }
+      const allowed = retryConfig?.inplace?.retryOnCauses || [
+        'connection_reset',
+        'network_timeout',
+        'gateway_error',
+        'rate_limit_burst',
+        'dns_error',
+      ];
+      return allowed.includes(cause);
+    };
 
     // Extract status code
     let statusCode: number | undefined = undefined;
@@ -101,8 +126,10 @@ export class ErrorClassifier {
     if (isQuotaPattern) {
       return {
         category: 'QUOTA_EXHAUSTED',
+        networkCause: 'HARD_FAILURE',
         statusCode: statusCode || 402,
         isRetriable: true, // Retriable by falling back to ANOTHER model in the pool!
+        isInPlaceRetriable: false, // 402 will NEVER succeed on the same model
         shouldTripBreaker: true,
         hardTrip: true, // Immediate circuit trip!
         suggestedCooldownMs: quotaCooldown,
@@ -124,8 +151,10 @@ export class ErrorClassifier {
     if (isAuthPattern) {
       return {
         category: 'AUTHENTICATION_ERROR',
+        networkCause: 'HARD_FAILURE',
         statusCode: 401,
         isRetriable: true, // Retriable by failing over to another provider/model
+        isInPlaceRetriable: false,
         shouldTripBreaker: true,
         hardTrip: true, // Immediate circuit trip!
         suggestedCooldownMs: quotaCooldown,
@@ -151,15 +180,24 @@ export class ErrorClassifier {
         ? retryAfterSeconds * 1000
         : Math.min(60 * 1000, defaultInitialCooldown);
 
+      const isShortBurst = Boolean(
+        retryAfterSeconds !== undefined &&
+        (retryAfterSeconds * 1000) <= maxRateLimitWaitMs
+      );
+      const networkCause: NetworkFailureCause = isShortBurst ? 'RATE_LIMIT_BURST' : 'UNKNOWN';
+      const inPlaceAllowed = isShortBurst && isCauseInPlaceRetriable('rate_limit_burst');
+
       return {
         category: 'RATE_LIMITED',
+        networkCause,
         statusCode: 429,
         isRetriable: true,
+        isInPlaceRetriable: inPlaceAllowed,
         shouldTripBreaker: true,
         hardTrip: false, // Standard trip or short backoff
         suggestedCooldownMs: cooldownMs,
         retryAfterSeconds,
-        reason: `Rate limit (429) exceeded on model '${modelId}' (Cooldown: ${Math.round(cooldownMs / 1000)}s)`,
+        reason: `Rate limit (429) on model '${modelId}' (Retry-After: ${retryAfterSeconds ?? 'unknown'}s, InPlace: ${inPlaceAllowed})`,
         rawError: error,
       };
     }
@@ -181,8 +219,10 @@ export class ErrorClassifier {
     if (isClientErrorPattern) {
       return {
         category: 'CLIENT_ERROR',
+        networkCause: 'HARD_FAILURE',
         statusCode: statusCode || 400,
         isRetriable: false, // Client payload is fundamentally invalid
+        isInPlaceRetriable: false,
         shouldTripBreaker: false, // Never trip circuit breaker for client payload error!
         hardTrip: false,
         reason: `Client parameter or context length error: ${rawMessage.slice(0, 200)}`,
@@ -196,25 +236,77 @@ export class ErrorClassifier {
     const isServerUnavailable =
       (statusCode !== undefined && statusCode >= 500 && statusCode < 600) ||
       combinedText.includes('etimedout') ||
+      combinedText.includes('esockettimedout') ||
       combinedText.includes('econnrefused') ||
       combinedText.includes('econnreset') ||
+      combinedText.includes('econnaborted') ||
+      combinedText.includes('socket hang up') ||
+      combinedText.includes('epipe') ||
       combinedText.includes('fetch failed') ||
       combinedText.includes('aborted') ||
+      combinedText.includes('aborterror') ||
       combinedText.includes('network error') ||
       combinedText.includes('service unavailable') ||
       combinedText.includes('bad gateway') ||
       combinedText.includes('gateway timeout') ||
-      combinedText.includes('overloaded');
+      combinedText.includes('overloaded') ||
+      combinedText.includes('cloudflare') ||
+      combinedText.includes('eai_again') ||
+      combinedText.includes('enotfound');
 
     if (isServerUnavailable) {
+      let networkCause: NetworkFailureCause = 'GATEWAY_ERROR';
+      let causeKey: RetriableCauseConfig = 'gateway_error';
+
+      // Dissect specific network failure cause:
+      if (
+        combinedText.includes('econnreset') ||
+        combinedText.includes('econnaborted') ||
+        combinedText.includes('socket hang up') ||
+        combinedText.includes('epipe') ||
+        combinedText.includes('und_err_socket')
+      ) {
+        networkCause = 'CONNECTION_RESET';
+        causeKey = 'connection_reset';
+      } else if (
+        statusCode === 504 ||
+        combinedText.includes('etimedout') ||
+        combinedText.includes('esockettimedout') ||
+        combinedText.includes('aborterror') ||
+        combinedText.includes('gateway timeout') ||
+        (combinedText.includes('timeout') && !combinedText.includes('rate'))
+      ) {
+        networkCause = 'NETWORK_TIMEOUT';
+        causeKey = 'network_timeout';
+      } else if (
+        combinedText.includes('eai_again') ||
+        combinedText.includes('enotfound')
+      ) {
+        networkCause = 'DNS_ERROR';
+        causeKey = 'dns_error';
+      } else if (
+        statusCode === 500 ||
+        combinedText.includes('internal server error')
+      ) {
+        networkCause = 'SERVER_INTERNAL_ERROR';
+        causeKey = 'server_internal_error';
+      } else {
+        networkCause = 'GATEWAY_ERROR';
+        causeKey = 'gateway_error';
+      }
+
+      const inPlaceAllowed = isCauseInPlaceRetriable(causeKey);
+
       return {
         category: 'SERVICE_UNAVAILABLE',
+        networkCause,
         statusCode: statusCode || 503,
         isRetriable: true,
+        isInPlaceRetriable: inPlaceAllowed,
         shouldTripBreaker: true,
         hardTrip: false,
         suggestedCooldownMs: defaultInitialCooldown,
-        reason: `Upstream service unavailable [${statusCode || 'NETWORK_ERROR'}]: ${rawMessage.slice(0, 150)}`,
+        reason: `Upstream network jitter [${networkCause}, status ${statusCode || 'N/A'}]: ${rawMessage.slice(0, 150)}`,
         rawError: error,
       };
     }
@@ -224,8 +316,10 @@ export class ErrorClassifier {
     // -------------------------------------------------------------
     return {
       category: 'UNKNOWN',
+      networkCause: 'UNKNOWN',
       statusCode,
       isRetriable: true,
+      isInPlaceRetriable: false,
       shouldTripBreaker: true,
       hardTrip: false,
       suggestedCooldownMs: defaultInitialCooldown,
@@ -234,3 +328,5 @@ export class ErrorClassifier {
     };
   }
 }
+
+

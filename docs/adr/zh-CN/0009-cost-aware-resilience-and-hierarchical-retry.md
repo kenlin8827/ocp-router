@@ -55,11 +55,24 @@
                                         +-------------------------------------+
 ```
 
-* **第一层：原地重试 (In-Place Retry - 挽救 KV Cache)**：
-  * **适用场景**：仅对 `SERVICE_UNAVAILABLE`（HTTP 500/502/503/504、网络超时、连接断开）执行原地微退避重试。
-  * **策略配置**：默认最大尝试 1 次（`maxAttempts: 1`），退避 200ms 并叠加 100ms 随机抖动（Jitter），防止惊群效应。
+* **第一层：原地重试 (In-Place Retry - 细粒度抖动诊断与挽救 KV Cache)**：
+  * **细粒度网络抖动分类学 (Network Failure Taxonomy)**：
+    系统通过 [`ErrorClassifier`](file:///d:/Projects/llm-router/src/resilience/error-classifier.ts) 对异常进行精准底层剖析，解构为 `networkCause` 并判定 `isInPlaceRetriable`：
+    1. `CONNECTION_RESET`（连接中断：`ECONNRESET`、`ECONNABORTED`、`socket hang up`、`EPIPE`、`und_err_socket`）：**极速原地重试**；
+    2. `NETWORK_TIMEOUT`（超时抖动：`ETIMEDOUT`、`ESOCKETTIMEDOUT`、HTTP 504 Gateway Timeout、`AbortError`）：**极速原地重试**；
+    3. `GATEWAY_ERROR`（网关瞬断：HTTP 502 Bad Gateway、HTTP 503 Service Unavailable、Cloudflare 52x）：**极速原地重试**；
+    4. `DNS_ERROR`（DNS 抖动：`EAI_AGAIN`、`ENOTFOUND` 短暂网络解析故障）：**极速原地重试**；
+    5. `RATE_LIMIT_BURST`（瞬时短频控：HTTP 429 且 `Retry-After <= maxRateLimitWaitMs`，默认 2s）：**按需原地等待重试**，原地等待 1~2 秒即可挽救 50k~100k Token 的高价值 KV Cache，经济效益巨大；若超过 2s 则立即切换备用模型；
+    6. `SERVER_INTERNAL_ERROR`（HTTP 500 内部服务错误）：默认不原地重试（上游代码异常重试大概率仍挂），但可通过配置显式开启；
+    7. `HARD_FAILURE`（HTTP 402 欠费、HTTP 401 密钥失效、HTTP 400 传参错误）：**绝对严禁原地重试**（0 次重试立即穿透至 Failover 或返回）。
+  * **策略配置参数 (`retry.inplace`)**：
+    * `maxAttempts`: 原地重试次数上限（默认: 1 次）；
+    * `backoffMs`: 基础退避时长（默认: 200ms）；
+    * `jitterMs`: 随机抖动（默认: 100ms），避免高并发下对上游形成惊群冲击；
+    * `retryOnCauses`: 允许原地重试的故障原因白名单（支持自由定制过滤）；
+    * `maxRateLimitWaitMs`: 允许原地退避等待的 429 最大容忍时长（默认: 2000ms）。
   * **经济价值**：工业数据表明单次微退避可化解约 70% 的云厂商网关毛刺抖动，**100% 保全上游 KV 缓存状态**，彻底避免跨模型切换导致的 10x 成本暴涨。
-  * **硬故障立即穿透**：遭遇 402（欠费）、401（未授权）或 400（客户端错误）时，**立即跳过（0 次重试）原地回路**，毫秒级进入故障转移或直接返回。
+
 
 * **第二层：候选池故障转移 (Candidate Pool Failover)**：
   * 当原地重试耗尽仍未恢复，或遭遇 402/429 错误时，熔断器记录失败，无缝激活备用候选模型；

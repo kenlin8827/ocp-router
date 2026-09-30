@@ -63,6 +63,14 @@ const DEFAULT_CONFIG: RouterConfig = {
       maxAttempts: 1,
       backoffMs: 200,
       jitterMs: 100,
+      retryOnCauses: [
+        'connection_reset',
+        'network_timeout',
+        'gateway_error',
+        'rate_limit_burst',
+        'dns_error',
+      ],
+      maxRateLimitWaitMs: 2000,
     },
     failover: {
       enabled: true,

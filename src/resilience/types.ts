@@ -10,10 +10,22 @@ export type ErrorCategory =
   | 'CLIENT_ERROR'         // 客户端输入错误、上下文超限 (HTTP 400, context length exceeded)
   | 'UNKNOWN';
 
+export type NetworkFailureCause =
+  | 'CONNECTION_RESET'       // 连接重置/中断: ECONNRESET, ECONNABORTED, socket hang up, EPIPE
+  | 'NETWORK_TIMEOUT'        // 超时抖动: ETIMEDOUT, ESOCKETTIMEDOUT, HTTP 504 Gateway Timeout, AbortError
+  | 'GATEWAY_ERROR'          // 网关临时不可用: HTTP 502 Bad Gateway, HTTP 503 Service Unavailable, Cloudflare 520-524
+  | 'RATE_LIMIT_BURST'       // 瞬时小频控: HTTP 429 且 Retry-After <= 门限阈值 (如 2s)
+  | 'DNS_ERROR'              // DNS 短暂解析抖动: EAI_AGAIN, ENOTFOUND
+  | 'SERVER_INTERNAL_ERROR'  // 上游 500 内部服务错误
+  | 'HARD_FAILURE'           // 402 欠费, 401 密钥失效, 400 传参错误 (严禁原地重试)
+  | 'UNKNOWN';
+
 export interface ErrorDiagnosis {
   category: ErrorCategory;
+  networkCause?: NetworkFailureCause; // 细分网络抖动与故障原因
   statusCode?: number;
-  isRetriable: boolean;
+  isRetriable: boolean;               // 是否支持故障转移 (Failover)
+  isInPlaceRetriable: boolean;        // 是否适合在同一模型上原地重试以挽救 KV Cache
   shouldTripBreaker: boolean;
   hardTrip: boolean; // 立即触发熔断，无需累积重试次数（如 402 欠费）
   suggestedCooldownMs?: number;
@@ -60,11 +72,21 @@ export interface CircuitBreakerSnapshot {
 
 export type TierCrossPolicy = 'same_tier_only' | 'allow_escalate';
 
+export type RetriableCauseConfig =
+  | 'connection_reset'       // ECONNRESET, socket hang up, EPIPE
+  | 'network_timeout'        // ETIMEDOUT, 504 Gateway Timeout
+  | 'gateway_error'          // 502 Bad Gateway, 503 Service Unavailable, Cloudflare 52x
+  | 'rate_limit_burst'       // 瞬时 429 (Retry-After <= maxRateLimitWaitMs)
+  | 'dns_error'              // EAI_AGAIN 短暂解析抖动
+  | 'server_internal_error'; // 500 内部服务错误 (默认不建议重试，除非显式启用)
+
 export interface InPlaceRetryConfig {
   enabled?: boolean;
-  maxAttempts?: number; // 默认: 1 (瞬时 5xx 原地重试 1 次挽救 KV Cache)
+  maxAttempts?: number; // 默认: 1 (瞬时网络抖动原地重试 1 次挽救 KV Cache)
   backoffMs?: number; // 默认: 200ms
   jitterMs?: number; // 默认: 100ms
+  retryOnCauses?: RetriableCauseConfig[]; // 允许触发原地重试的故障原因白名单 (默认全选高频抖动)
+  maxRateLimitWaitMs?: number; // 允许原地退避等待的 429 最大时长，毫秒 (默认 2000ms，超过则走 Failover)
 }
 
 export interface FailoverRetryConfig {

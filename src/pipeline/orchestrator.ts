@@ -506,13 +506,6 @@ export class PipelineOrchestrator {
       let candidateResponse: ChatCompletionResponse | undefined = undefined;
 
       for (let attempt = 0; attempt <= maxInplaceAttempts; attempt++) {
-        if (attempt > 0) {
-          // Sleep backoff + jitter before in-place retry
-          const sleepMs = backoffMs + Math.random() * jitterMs;
-          await new Promise(resolve => setTimeout(resolve, sleepMs));
-          totalInplaceRetries++;
-        }
-
         try {
           candidateResponse = await this.registry.execute(preparedReq, candidate);
           cbManager.recordSuccess(candidate.id);
@@ -520,7 +513,13 @@ export class PipelineOrchestrator {
           break; // successfully executed on this candidate!
         } catch (err: any) {
           lastError = err;
-          const diagnosis = ErrorClassifier.classify(err, candidate.id, candidate.provider, this.config.circuitBreaker);
+          const diagnosis = ErrorClassifier.classify(
+            err,
+            candidate.id,
+            candidate.provider,
+            this.config.circuitBreaker,
+            this.config.retry
+          );
           cbManager.recordFailure(candidate.id, diagnosis, candidate.provider);
 
           // 1. Client error (400 Bad Request, context length exceeded) -> NEVER retriable, fail immediately
@@ -535,17 +534,20 @@ export class PipelineOrchestrator {
             };
           }
 
-          // 2. Hard trip / Quota exhausted (402) / Auth error (401) -> NEVER in-place retry, failover immediately!
-          if (diagnosis.hardTrip || diagnosis.category === 'QUOTA_EXHAUSTED' || diagnosis.category === 'AUTHENTICATION_ERROR') {
-            break; // break in-place loop, move to next candidate
+          // 2. Can we in-place retry on the SAME candidate model to preserve KV Cache?
+          if (diagnosis.isInPlaceRetriable && attempt < maxInplaceAttempts) {
+            let sleepMs = backoffMs + Math.random() * jitterMs;
+            if (diagnosis.networkCause === 'RATE_LIMIT_BURST' && diagnosis.retryAfterSeconds) {
+              sleepMs = Math.max(sleepMs, diagnosis.retryAfterSeconds * 1000);
+            }
+            await new Promise(resolve => setTimeout(resolve, sleepMs));
+            totalInplaceRetries++;
+            continue; // retry in-place on this model!
           }
 
-          // 3. Rate limited (429) -> If backup candidates exist, switch immediately to preserve low latency
-          if (diagnosis.category === 'RATE_LIMITED' && failoverAttempts < maxFailoverCandidates && candidateList.length > failoverAttempts) {
-            break;
-          }
-
-          // 4. Transient error (5xx, timeout) -> loop continues for attempt < maxInplaceAttempts
+          // 3. In-place retry not applicable (402, long 429, excluded cause, or maxAttempts reached)
+          // Break out of in-place loop to failover to next candidate model!
+          break;
         }
       }
 
