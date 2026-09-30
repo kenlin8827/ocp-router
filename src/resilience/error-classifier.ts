@@ -5,6 +5,7 @@ import {
   NetworkFailureCause,
   RetriableCauseConfig,
   RetryConfig,
+  DEFAULT_RETRIABLE_CAUSES,
 } from './types.js';
 
 export class UpstreamError extends Error {
@@ -58,13 +59,7 @@ export class ErrorClassifier {
       if (retryConfig?.enabled === false || retryConfig?.inplace?.enabled === false) {
         return false;
       }
-      const allowed = retryConfig?.inplace?.retryOnCauses || [
-        'connection_reset',
-        'network_timeout',
-        'gateway_error',
-        'rate_limit_burst',
-        'dns_error',
-      ];
+      const allowed = retryConfig?.inplace?.retryOnCauses || DEFAULT_RETRIABLE_CAUSES;
       return allowed.includes(cause);
     };
 

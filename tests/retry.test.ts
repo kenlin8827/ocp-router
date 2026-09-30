@@ -520,5 +520,25 @@ describe('Resilience: Fine-Grained Network Jitter Taxonomy & Cause Filtering (AD
     assert.equal(result.failoverOccurred, true);
     assert.equal(result.inplaceRetries, 0); // 0 in-place retries because 503 wasn't in retryOnCauses!
   });
+
+  it('should automatically provide DEFAULT_RETRIABLE_CAUSES when retryOnCauses is omitted', async () => {
+    const { loadConfig } = await import('../src/config/index.js');
+    const { DEFAULT_RETRIABLE_CAUSES } = await import('../src/resilience/types.js');
+
+    // Default configuration must have all default retriable causes populated
+    const cfg = loadConfig();
+    assert.ok(cfg.retry?.inplace?.retryOnCauses);
+    assert.deepEqual(cfg.retry?.inplace?.retryOnCauses, DEFAULT_RETRIABLE_CAUSES);
+
+    // ErrorClassifier without explicit retryOnCauses must default to DEFAULT_RETRIABLE_CAUSES
+    const errReset = new Error('ECONNRESET');
+    const diag = ErrorClassifier.classify(errReset, 'model-1', 'provider-1', undefined, {
+      enabled: true,
+      inplace: { enabled: true }, // retryOnCauses omitted!
+    });
+    assert.equal(diag.isInPlaceRetriable, true);
+    assert.equal(diag.networkCause, 'CONNECTION_RESET');
+  });
 });
+
 

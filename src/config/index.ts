@@ -3,6 +3,7 @@ import path from 'node:path';
 import { parse } from 'yaml';
 import dotenv from 'dotenv';
 import { RouterConfig } from './types.js';
+import { DEFAULT_RETRIABLE_CAUSES } from '../resilience/types.js';
 
 dotenv.config();
 
@@ -63,13 +64,7 @@ const DEFAULT_CONFIG: RouterConfig = {
       maxAttempts: 1,
       backoffMs: 200,
       jitterMs: 100,
-      retryOnCauses: [
-        'connection_reset',
-        'network_timeout',
-        'gateway_error',
-        'rate_limit_burst',
-        'dns_error',
-      ],
+      retryOnCauses: [...DEFAULT_RETRIABLE_CAUSES],
       maxRateLimitWaitMs: 2000,
     },
     failover: {

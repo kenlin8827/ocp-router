@@ -80,6 +80,14 @@ export type RetriableCauseConfig =
   | 'dns_error'              // EAI_AGAIN 短暂解析抖动
   | 'server_internal_error'; // 500 内部服务错误 (默认不建议重试，除非显式启用)
 
+export const DEFAULT_RETRIABLE_CAUSES: RetriableCauseConfig[] = [
+  'connection_reset',
+  'network_timeout',
+  'gateway_error',
+  'rate_limit_burst',
+  'dns_error',
+];
+
 export interface InPlaceRetryConfig {
   enabled?: boolean;
   maxAttempts?: number; // 默认: 1 (瞬时网络抖动原地重试 1 次挽救 KV Cache)
