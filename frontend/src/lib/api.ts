@@ -142,16 +142,23 @@ export const api = {
     return res.json();
   },
 
-  async getTraces(limit = 50): Promise<{ traces: TraceRecord[] }> {
-    const res = await fetch(`/v1/traces?limit=${limit}`);
-    if (!res.ok) return { traces: [] };
-    return res.json();
+  async getTraces(limit = 50, offset = 0): Promise<{ traces: TraceRecord[]; total: number }> {
+    const res = await fetch(`/v1/traces?limit=${limit}&offset=${offset}`);
+    if (!res.ok) return { traces: [], total: 0 };
+    const json = await res.json();
+    // /v1/traces responds { object, total, limit, offset, data }
+    return { traces: json.data || [], total: json.total || 0 };
   },
 
-  async getSessions(): Promise<{ sessions: SessionRecord[] }> {
-    const res = await fetch('/v1/sessions');
-    if (!res.ok) return { sessions: [] };
-    return res.json();
+  async getSessions(limit?: number, offset = 0): Promise<{ sessions: SessionRecord[]; total: number }> {
+    const qs = new URLSearchParams();
+    if (limit !== undefined) qs.set('limit', String(limit));
+    qs.set('offset', String(offset));
+    const res = await fetch(`/v1/sessions?${qs.toString()}`);
+    if (!res.ok) return { sessions: [], total: 0 };
+    const json = await res.json();
+    // /v1/sessions responds { object, total, limit?, offset, data }
+    return { sessions: json.data || [], total: json.total || 0 };
   },
 
   async getApiKeys(): Promise<{ status: string; keys: ApiKeyItem[] }> {

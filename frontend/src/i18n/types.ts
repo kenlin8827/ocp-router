@@ -12,6 +12,13 @@ export interface TranslationDict {
     noResults: string;
     clear: string;
   };
+  pagination: {
+    prev: string;
+    next: string;
+    page: string;
+    summary: string;
+    perPage: string;
+  };
   nav: {
     overview: string;
     chains: string;
@@ -253,8 +260,6 @@ export interface TranslationDict {
     costCacheWrite: string;
     notConnected: string;
     empty: string;
-    count: string;
-    loadMore: string;
     refresh: string;
   };
   guardrails: {

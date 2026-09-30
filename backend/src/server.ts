@@ -211,17 +211,27 @@ export function createServer(
     return orchestrator.getFlywheel()?.getStats() || { status: 'disabled' };
   });
 
-  // 3C. Active Conversation Sessions Inspection
-  app.get('/v1/sessions', async () => {
-    const sessions = orchestrator.getSessionManager()?.getAllSessions() || [];
+  // 3C. Active Conversation Sessions Inspection (optional limit/offset pagination)
+  app.get('/v1/sessions', async (req) => {
+    const query = req.query as { limit?: string; offset?: string };
+    const limit = query.limit !== undefined ? parseInt(query.limit, 10) : undefined;
+    const offset = query.offset ? parseInt(query.offset, 10) : 0;
+
     const traceTracker = orchestrator.getTraceTracker();
-    const data = sessions.map(s => ({
-      ...s,
-      traceCount: traceTracker.getTraceCountForSession(s.id),
-    }));
+    // Most recently active first — stable ordering for pagination
+    const all = (orchestrator.getSessionManager()?.getAllSessions() || [])
+      .sort((a, b) => b.lastActiveAt - a.lastActiveAt)
+      .map(s => ({
+        ...s,
+        traceCount: traceTracker.getTraceCountForSession(s.id),
+      }));
+    const data = limit === undefined ? all.slice(offset) : all.slice(offset, offset + limit);
+
     return {
       object: 'list',
-      total: data.length,
+      total: all.length,
+      ...(limit !== undefined ? { limit } : {}),
+      offset,
       data,
     };
   });

@@ -17,6 +17,10 @@ import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { Combobox } from '../components/Combobox';
+import { Pagination } from '../components/Pagination';
+
+const KEY_PAGE_SIZE = 20;
+const KEY_PAGE_SIZES = [10, 20, 50, 100, 200];
 
 export const ApiKeysPage: React.FC = () => {
   const { t } = useI18n();
@@ -43,6 +47,10 @@ export const ApiKeysPage: React.FC = () => {
 
   // Active tab for quick connect code examples
   const [connectTab, setConnectTab] = useState<'cursor' | 'python' | 'curl'>('cursor');
+
+  const [page, setPage] = useState(1);
+  const [keyPageSize, setKeyPageSize] = useState(KEY_PAGE_SIZE);
+  const pagedKeys = keys.slice((page - 1) * keyPageSize, page * keyPageSize);
 
   const fetchKeys = async () => {
     try {
@@ -296,7 +304,7 @@ export const ApiKeysPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {keys.map((item) => {
+                {pagedKeys.map((item) => {
                   const isVisible = showSecret[item.id];
                   const displayKey = isVisible
                     ? item.key
@@ -432,6 +440,19 @@ export const ApiKeysPage: React.FC = () => {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+        {keys.length > 0 && (
+          <div style={{ padding: '0 20px 16px' }}>
+            <Pagination
+              page={page}
+              pageSize={keyPageSize}
+              total={keys.length}
+              onChange={setPage}
+              showSummary
+              pageSizeOptions={KEY_PAGE_SIZES}
+              onPageSizeChange={(s) => { setKeyPageSize(s); setPage(1); }}
+            />
           </div>
         )}
       </div>

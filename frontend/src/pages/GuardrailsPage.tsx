@@ -4,12 +4,18 @@ import { ShieldAlert, RefreshCw, Search } from 'lucide-react';
 import { api, type GatewayStatusResponse, type BreakerInfo } from '../lib/api';
 import { useI18n } from '../i18n/I18nContext';
 import { useToast } from '../components/ToastProvider';
+import { Pagination } from '../components/Pagination';
+
+const BREAKER_PAGE_SIZE = 20;
+const BREAKER_PAGE_SIZES = [10, 20, 50, 100, 200];
 
 export const GuardrailsPage: React.FC = () => {
   const { status } = useOutletContext<{ status: GatewayStatusResponse | null }>();
   const { t } = useI18n();
   const toast = useToast();
   const [modelFilter, setModelFilter] = useState('');
+  const [breakerPage, setBreakerPage] = useState(1);
+  const [breakerPageSize, setBreakerPageSize] = useState(BREAKER_PAGE_SIZE);
   const [isResetting, setIsResetting] = useState(false);
 
   const breakers: BreakerInfo[] = status?.circuitBreakers?.breakers || [];
@@ -18,6 +24,10 @@ export const GuardrailsPage: React.FC = () => {
 
   const filteredBreakers = breakers.filter(b =>
     b.model.toLowerCase().includes(modelFilter.toLowerCase())
+  );
+  const pagedBreakers = filteredBreakers.slice(
+    (breakerPage - 1) * breakerPageSize,
+    breakerPage * breakerPageSize
   );
 
   const handleResetAll = async () => {
@@ -84,7 +94,7 @@ export const GuardrailsPage: React.FC = () => {
           <input
             type="text"
             value={modelFilter}
-            onChange={e => setModelFilter(e.target.value)}
+            onChange={e => { setModelFilter(e.target.value); setBreakerPage(1); }}
             placeholder={t('guardrails.searchFilter')}
             className="input"
             style={{ paddingLeft: '34px' }}
@@ -93,8 +103,8 @@ export const GuardrailsPage: React.FC = () => {
 
         {/* Matrix Grid */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px', maxHeight: '560px', overflowY: 'auto' }}>
-          {filteredBreakers.length > 0 ? (
-            filteredBreakers.map(b => {
+          {pagedBreakers.length > 0 ? (
+            pagedBreakers.map(b => {
               const isClosed = b.state === 'CLOSED';
               const isOpen = b.state === 'OPEN';
               return (
@@ -135,6 +145,14 @@ export const GuardrailsPage: React.FC = () => {
             </div>
           )}
         </div>
+        <Pagination
+          page={breakerPage}
+          pageSize={breakerPageSize}
+          total={filteredBreakers.length}
+          onChange={setBreakerPage}
+          pageSizeOptions={BREAKER_PAGE_SIZES}
+          onPageSizeChange={(s) => { setBreakerPageSize(s); setBreakerPage(1); }}
+        />
       </div>
     </div>
   );

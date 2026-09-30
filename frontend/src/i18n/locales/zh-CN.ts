@@ -12,6 +12,13 @@ export const zhCN: TranslationDict = {
     noResults: '无匹配项',
     clear: '清除',
   },
+  pagination: {
+    prev: '上一页',
+    next: '下一页',
+    page: '第 {n} 页',
+    summary: '第 {from}–{to} 条 / 共 {total} 条',
+    perPage: '{n} 条 / 页',
+  },
   nav: {
     overview: '概览看板',
     chains: '级联梯队',
@@ -253,8 +260,6 @@ export const zhCN: TranslationDict = {
     costCacheWrite: '缓存写',
     notConnected: '未连接',
     empty: '没有匹配的模型',
-    count: '显示 {shown} / {total} 个模型',
-    loadMore: '加载更多',
     refresh: '刷新',
   },
   guardrails: {

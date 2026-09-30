@@ -12,6 +12,13 @@ export const enUS: TranslationDict = {
     noResults: 'No matches',
     clear: 'Clear',
   },
+  pagination: {
+    prev: 'Previous page',
+    next: 'Next page',
+    page: 'Page {n}',
+    summary: 'Showing {from}–{to} of {total}',
+    perPage: '{n} / page',
+  },
   nav: {
     overview: 'Overview',
     chains: 'Cascading Chains',
@@ -253,8 +260,6 @@ export const enUS: TranslationDict = {
     costCacheWrite: 'Cache write',
     notConnected: 'not connected',
     empty: 'No models match',
-    count: 'Showing {shown} / {total} models',
-    loadMore: 'Load more',
     refresh: 'Refresh',
   },
   guardrails: {

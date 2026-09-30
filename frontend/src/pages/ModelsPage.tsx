@@ -5,10 +5,12 @@ import { opencodeApi, type OpenCodeModelView } from '../lib/api';
 import { useI18n } from '../i18n/I18nContext';
 import { ModelEditDialog } from '../components/ModelEditDialog';
 import { Combobox } from '../components/Combobox';
+import { Pagination } from '../components/Pagination';
 
 type SortKey = 'default' | 'priceAsc' | 'priceDesc' | 'contextDesc' | 'name';
 
-const PAGE_SIZE = 200;
+const PAGE_SIZE = 50;
+const PAGE_SIZES = [10, 20, 50, 100, 200];
 
 /** 200000 → "200K", 1000000 → "1M" */
 const SOURCE_BADGE: Record<string, { color: string; bg: string; labelKey: string }> = {
@@ -85,7 +87,8 @@ export const ModelsPage: React.FC = () => {
   const [provider, setProvider] = useState(searchParams.get('provider') || '');
   const [onlyConnected, setOnlyConnected] = useState(false);
   const [sort, setSort] = useState<SortKey>('default');
-  const [visible, setVisible] = useState(PAGE_SIZE);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(PAGE_SIZE);
 
   const load = async () => {
     setLoading(true);
@@ -152,9 +155,11 @@ export const ModelsPage: React.FC = () => {
 
   const selectProvider = (id: string) => {
     setProvider(id);
-    setVisible(PAGE_SIZE);
+    setPage(1);
     setSearchParams(id ? { provider: id } : {}, { replace: true });
   };
+
+  const pagedModels = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -183,7 +188,7 @@ export const ModelsPage: React.FC = () => {
               style={{ fontSize: 12, paddingLeft: 30, width: '100%' }}
               placeholder={t('models.search')}
               value={query}
-              onChange={(e) => { setQuery(e.target.value); setVisible(PAGE_SIZE); }}
+              onChange={(e) => { setQuery(e.target.value); setPage(1); }}
             />
           </div>
           <Combobox
@@ -203,7 +208,7 @@ export const ModelsPage: React.FC = () => {
           <Combobox
             style={{ fontSize: 12, width: 'auto', cursor: 'pointer' }}
             value={sort}
-            onChange={(v) => setSort(v as SortKey)}
+            onChange={(v) => { setSort(v as SortKey); setPage(1); }}
             options={[
               { value: 'default', label: t('models.sortDefault') },
               { value: 'priceAsc', label: t('models.sortPriceAsc') },
@@ -216,7 +221,7 @@ export const ModelsPage: React.FC = () => {
             <input
               type="checkbox"
               checked={onlyConnected}
-              onChange={(e) => setOnlyConnected(e.target.checked)}
+              onChange={(e) => { setOnlyConnected(e.target.checked); setPage(1); }}
             />
             {t('models.onlyConnected')}
           </label>
@@ -241,7 +246,7 @@ export const ModelsPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {filtered.slice(0, visible).map((m) => (
+              {pagedModels.map((m) => (
                 <tr key={`${m.providerId}/${m.id}`}>
                   <td style={tdStyle}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -307,15 +312,16 @@ export const ModelsPage: React.FC = () => {
           </table>
         </div>
 
-        {/* ---- Footer: count + load more ---- */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, fontSize: 11, color: 'var(--text-dim)' }}>
-          <span>{t('models.count', { shown: Math.min(visible, filtered.length), total: filtered.length })}</span>
-          {visible < filtered.length && (
-            <button className="btn btn-sm" onClick={() => setVisible((v) => v + PAGE_SIZE)}>
-              {t('models.loadMore')}
-            </button>
-          )}
-        </div>
+        {/* ---- Footer: pagination (summary left, controls right, one row) ---- */}
+        <Pagination
+          page={page}
+          pageSize={pageSize}
+          total={filtered.length}
+          onChange={setPage}
+          showSummary
+          pageSizeOptions={PAGE_SIZES}
+          onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
+        />
 
         {editTarget && (
           <ModelEditDialog
