@@ -1,26 +1,43 @@
 /**
  * Unified provider/model catalog — normalized across sources.
  *
- * Pricing unit convention: USD per 1M tokens (models.dev `cost` is already $/1M).
+ * Data shapes are aligned 1:1 with the OpenCode / models.dev standard metadata
+ * schema (snake_case): models carry `tool_call`, `limit{context,output}`,
+ * `cost{input,output,cache_read,cache_write}`, `attachment`, `temperature`,
+ * `modalities` — so normalizer output is near-identity and writing definitions
+ * into opencode.jsonc needs no reshaping. Pricing/cost unit: USD per 1M tokens
+ * (models.dev `cost` is already $/1M; OpenRouter is converted at the source).
  */
 
-export type CatalogSourceId = 'models-dev' | 'openrouter' | 'openai-compatible' | 'config' | 'service';
+export type CatalogSourceId = 'builtin' | 'openrouter' | 'openai-compatible' | 'config' | 'service';
 
-export interface CatalogPricing {
+export interface CatalogCost {
   input?: number;
   output?: number;
-  cacheRead?: number;
-  cacheWrite?: number;
+  cache_read?: number;
+  cache_write?: number;
+}
+
+export interface CatalogLimit {
+  context?: number;
+  output?: number;
+}
+
+export interface CatalogModalities {
+  input?: string[];
+  output?: string[];
 }
 
 export interface CatalogModel {
   id: string;
   name?: string;
+  attachment?: boolean;
   reasoning?: boolean;
-  toolCall?: boolean;
-  contextLimit?: number;
-  outputLimit?: number;
-  pricing?: CatalogPricing;
+  tool_call?: boolean;
+  temperature?: boolean;
+  modalities?: CatalogModalities;
+  cost?: CatalogCost;
+  limit?: CatalogLimit;
   source: CatalogSourceId;
 }
 
@@ -28,7 +45,7 @@ export interface CatalogProviderRecord {
   id: string;
   name?: string;
   /** models.dev logo asset (svg); frontend falls back to an initial-letter avatar on error */
-  logoUrl?: string;
+  logo?: string;
   npm?: string;
   /** default API base from the catalog */
   api?: string;

@@ -13,7 +13,7 @@ export function modelsDevLogoUrl(providerId: string): string {
   return `https://models.dev/logos/${providerId}.svg`;
 }
 
-/** Pure normalizer (unit-tested without network). */
+/** Pure normalizer (unit-tested without network). models.dev shape ≈ opencode schema. */
 export function normalizeModelsDev(raw: Record<string, any>): CatalogProviderRecord[] {
   const list: CatalogProviderRecord[] = [];
 
@@ -24,23 +24,17 @@ export function normalizeModelsDev(raw: Record<string, any>): CatalogProviderRec
     if (entry.models && typeof entry.models === 'object') {
       for (const [mid, m] of Object.entries<any>(entry.models)) {
         if (!m || typeof m !== 'object') continue;
-        const cost = m.cost && typeof m.cost === 'object' ? m.cost : undefined;
         models.push({
           id: mid,
           name: m.name || undefined,
+          attachment: m.attachment === true || undefined,
           reasoning: m.reasoning === true || undefined,
-          toolCall: m.tool_call === true || undefined,
-          contextLimit: m.limit?.context,
-          outputLimit: m.limit?.output,
-          pricing: cost
-            ? {
-                input: cost.input,
-                output: cost.output,
-                cacheRead: cost.cache_read,
-                cacheWrite: cost.cache_write,
-              }
-            : undefined,
-          source: 'models-dev',
+          tool_call: m.tool_call === true || undefined,
+          temperature: m.temperature === true || undefined,
+          modalities: m.modalities && typeof m.modalities === 'object' ? m.modalities : undefined,
+          cost: m.cost && typeof m.cost === 'object' ? m.cost : undefined,
+          limit: m.limit && typeof m.limit === 'object' ? m.limit : undefined,
+          source: 'builtin',
         });
       }
     }
@@ -48,14 +42,14 @@ export function normalizeModelsDev(raw: Record<string, any>): CatalogProviderRec
     list.push({
       id,
       name: entry.name || id,
-      logoUrl: modelsDevLogoUrl(id),
+      logo: modelsDevLogoUrl(id),
       npm: entry.npm || undefined,
       api: entry.api || undefined,
       doc: entry.doc || undefined,
       env: Array.isArray(entry.env) ? entry.env : undefined,
       custom: false,
       connected: false,
-      sources: ['models-dev'],
+      sources: ['builtin'],
       models,
     });
   }

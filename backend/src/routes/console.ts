@@ -181,7 +181,10 @@ export function registerConsoleRoutes(
           const u = byId.get(v.id);
           return {
             ...v,
-            logoUrl: u?.logoUrl,
+            logo: u?.logo,
+            // auth-only providers have no config baseURL — fall back to the
+            // catalog's effective base (config override → live service hint)
+            baseURL: v.baseURL || u?.baseURL,
             priceFrom: u ? catalogRepository.minInputPrice(u) : undefined,
             modelsCount: u?.models.length ?? v.models.length,
           };
@@ -196,7 +199,7 @@ export function registerConsoleRoutes(
       const providers = unified.map((p) => ({
         id: p.id,
         name: p.name,
-        logoUrl: p.logoUrl,
+        logo: p.logo,
         npm: p.npm,
         api: p.api,
         baseURL: p.baseURL,
@@ -229,7 +232,7 @@ export function registerConsoleRoutes(
             ...m,
             providerId: p.id,
             providerName: p.name,
-            logoUrl: p.logoUrl,
+            logo: p.logo,
             custom: p.custom,
             connected: p.connected,
           }))
@@ -361,6 +364,19 @@ export function registerConsoleRoutes(
     app.post(`${prefix}/opencode/providers/:id/key`, ocHandlers.setKey);
     app.delete(`${prefix}/opencode/providers/:id`, ocHandlers.remove);
   }
+
+  // 8b. Catalog logo proxy — remote provider logos served from the local disk
+  //     cache (backend/src/opencode/catalog/logos.ts) so page loads don't break
+  //     icons when models.dev / openrouter.ai are unreachable.
+  const handleCatalogLogo = async (req: any, reply: any) => {
+    const { getLogoCached } = await import('../opencode/catalog/logos.js');
+    const url = (req.query as { url?: string }).url;
+    const logo = await getLogoCached(url);
+    if (!logo) return reply.status(404).send();
+    return reply.header('Cache-Control', 'public, max-age=604800').type(logo.contentType).send(logo.body);
+  };
+  app.get('/api/ui/catalog/logo', handleCatalogLogo);
+  app.get('/api/console/catalog/logo', handleCatalogLogo);
 
   // 9. Client API Keys Management (for external client access)
   const handleListApiKeys = async () => {

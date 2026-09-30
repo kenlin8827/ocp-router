@@ -28,13 +28,15 @@ export function normalizeOpenRouter(raw: { data?: any[] }): CatalogModel[] {
       id: m.id,
       name: m.name || undefined,
       reasoning: params.includes('reasoning') || undefined,
-      toolCall: params.includes('tools') || undefined,
-      contextLimit: m.context_length ?? m.top_provider?.context_length,
-      outputLimit: m.top_provider?.max_completion_tokens,
-      pricing: {
+      tool_call: params.includes('tools') || undefined,
+      limit: {
+        context: m.context_length ?? m.top_provider?.context_length,
+        output: m.top_provider?.max_completion_tokens,
+      },
+      cost: {
         input: toPerMillion(m.pricing?.prompt),
         output: toPerMillion(m.pricing?.completion),
-        cacheRead: toPerMillion(m.pricing?.input_cache_read ?? m.pricing?.internal_cache),
+        cache_read: toPerMillion(m.pricing?.input_cache_read ?? m.pricing?.internal_cache),
       },
       source: 'openrouter',
     });

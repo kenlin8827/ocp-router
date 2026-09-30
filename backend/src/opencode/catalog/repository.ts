@@ -4,6 +4,7 @@ import type { CatalogConfig } from '../../config/types.js';
 import { resolveSources, parseByType, type RemoteSourceDef, type ParsedSource } from './sources/registry.js';
 import { modelsDevLogoUrl } from './sources/models-dev.js';
 import { readCacheFile, writeCacheFile } from './cache.js';
+import { localLogoApiPath } from './logos.js';
 import type { CatalogModel, CatalogProviderRecord, CatalogSourceId } from './types.js';
 
 /**
@@ -13,24 +14,82 @@ import type { CatalogModel, CatalogProviderRecord, CatalogSourceId } from './typ
  * enabled/priority — and dispatched through the normalizer registry. Adding a
  * source of a known type requires zero code changes.
  *
- * Merge precedence (highest wins): config definition > live service > remote
- * sources by ascending `priority` (openrouter 30 > models-dev 40 by default).
- * OpenRouter-style `vendor/model` ids are demultiplexed onto matching provider
- * records so first-party pricing overlays the static catalog; unmatched vendors
- * stay under their own source entry.
+ * Merge semantics (fill-missing-only): sources are processed in ascending
+ * `priority` — the `builtin` baseline (OpenCode's built-in catalog, models.dev)
+ * first, then extension sources. Config definitions are established before all
+ * remotes, so they win by order. A later source may only fill fields that are
+ * absent / empty / zero; non-blank values are never overwritten. Every
+ * provider/model keeps the `source` marker of its creating source.
  */
 
 const SERVICE_TTL_MS = 5 * 60 * 1000;
 /** OpenRouter's official brand glyph (verified 200). */
 const OPENROUTER_BRAND_LOGO = 'https://openrouter.ai/brand/v2/openrouter-glyph-light.svg';
 
-/** Union-merge model lists by id; `overlay` entries win on collision. */
+/**
+ * A value a later source may fill: absent, empty, or zero. Anything else is
+ * "already known" and never overwritten — first non-blank value wins.
+ */
+export function isBlank(v: any): boolean {
+  if (v === undefined || v === null || v === '') return true;
+  if (typeof v === 'number') return v === 0;
+  if (Array.isArray(v)) return v.length === 0;
+  if (typeof v === 'object') return Object.keys(v).length === 0;
+  return false;
+}
+
+function isPlainObject(v: any): boolean {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Fill-missing-only value merge: blank base → overlay; blank overlay → base;
+ * two plain objects → recurse (nested containers like `cost`/`limit` merge per
+ * field); otherwise the first non-blank value wins.
+ */
+export function mergeFillMissing(base: any, overlay: any): any {
+  if (isBlank(base)) return overlay;
+  if (isBlank(overlay)) return base;
+  if (isPlainObject(base) && isPlainObject(overlay)) {
+    const out: any = { ...base };
+    for (const [k, v] of Object.entries(overlay)) out[k] = mergeFillMissing(base[k], v);
+    return out;
+  }
+  return base;
+}
+
+/**
+ * Extension sources may only ENRICH existing model entries (fill-missing per
+ * field) — never add new ones. The model universe is defined by config + the
+ * builtin baseline; anything else is an overlay, not a source of truth.
+ */
+export function fillOnlyModels(base: CatalogModel[], overlay: CatalogModel[]): CatalogModel[] {
+  if (overlay.length === 0 || base.length === 0) return base;
+  const byId = new Map(overlay.map((m) => [m.id, m]));
+  return base.map((b) => (byId.has(b.id) ? mergeModels([b], [byId.get(b.id)!])[0] : b));
+}
+
+/**
+ * Union-merge model lists by id with fill-missing-only semantics: the first
+ * source to set a field owns it (undefined / '' / 0 / empty container count as
+ * unset); later sources only fill blanks, recursing into nested objects
+ * (`cost`, `limit`). `source` stays the creating source.
+ */
 export function mergeModels(base: CatalogModel[], overlay: CatalogModel[]): CatalogModel[] {
   const byId = new Map<string, CatalogModel>();
   for (const m of base) byId.set(m.id, m);
   for (const m of overlay) {
     const existing = byId.get(m.id);
-    byId.set(m.id, existing ? { ...existing, ...m, source: m.source } : m);
+    if (!existing) {
+      byId.set(m.id, m);
+      continue;
+    }
+    const merged: any = { ...existing };
+    for (const [k, v] of Object.entries(m)) {
+      if (k === 'source') continue;
+      merged[k] = mergeFillMissing((existing as any)[k], v);
+    }
+    byId.set(m.id, merged as CatalogModel);
   }
   return Array.from(byId.values());
 }
@@ -93,7 +152,9 @@ export class CatalogRepository {
   }
 
   private async syncRemote(def: RemoteSourceDef): Promise<void> {
-    const cacheName = `catalog-${def.id}`;
+    // v2 = OpenCode-schema catalog records (pricing/limit → cost/limit); the
+    // rename invalidates pre-schema-migration caches in one go.
+    const cacheName = `catalog-v2-${def.id}`;
     const cached = readCacheFile<ParsedSource>(cacheName);
     // Shape validation: legacy caches (pre-repository) stored a bare array and
     // must NOT be treated as a valid ParsedSource.
@@ -158,12 +219,34 @@ export class CatalogRepository {
   private configModelsFor(id: string): CatalogModel[] {
     const node = getProviderNodeById(id);
     if (!node?.models || typeof node.models !== 'object') return [];
-    return Object.entries<any>(node.models).map(([mid, m]) => ({
-      id: mid,
-      name: m?.name || undefined,
-      reasoning: m?.reasoning === true || undefined,
-      source: 'config' as const,
-    }));
+    // Config defs use the OpenCode v2 schema (`capabilities{tools,input,output}`);
+    // CatalogModel is the snake_case models.dev view (`tool_call`, `modalities`).
+    // Normalize v2 → snake_case fill-missing-style so view consumers (e.g. the
+    // /models capability column) see one shape; explicit snake_case fields and
+    // `capabilities` itself are kept untouched.
+    return Object.entries<any>(node.models).map(([mid, m]) => {
+      const def = m && typeof m === 'object' ? m : {};
+      const caps = def.capabilities && typeof def.capabilities === 'object' ? def.capabilities : {};
+      const modalities: Record<string, string[]> = {
+        ...(Array.isArray(caps.input) && caps.input.length > 0
+          ? { input: caps.input.map((x: any) => String(x)) }
+          : {}),
+        ...(Array.isArray(caps.output) && caps.output.length > 0
+          ? { output: caps.output.map((x: any) => String(x)) }
+          : {}),
+      };
+      return {
+        ...def,
+        tool_call: def.tool_call ?? (typeof caps.tools === 'boolean' ? caps.tools : undefined),
+        reasoning: def.reasoning ?? (caps.reasoning === true || undefined),
+        modalities:
+          Object.keys(modalities).length > 0
+            ? { ...modalities, ...(isPlainObject(def.modalities) ? def.modalities : {}) }
+            : def.modalities,
+        id: mid,
+        source: 'config' as const,
+      };
+    });
   }
 
   /** Unified, management-safe catalog view (no secrets). */
@@ -186,41 +269,41 @@ export class CatalogRepository {
 
     const orByVendor = this.demuxByVendor();
 
-    // 2. provider-catalog sources (ascending priority): metadata + models overlay
+    // 2. provider-catalog sources (ascending priority; builtin is the baseline):
+    //    later sources only fill blanks on existing records (config was first).
     for (const src of [...this.remote.values()]
       .filter((r) => Array.isArray(r.parsed.providers) && r.parsed.providers!.length > 0)
       .sort((a, b) => a.def.priority - b.def.priority)) {
+      const isBaseline = src.def.id === 'builtin';
       for (const md of src.parsed.providers!) {
-        const catalogModels = orByVendor.get(md.id);
-        const merged = catalogModels ? mergeModels(md.models, catalogModels) : md.models;
         const existing = unified.get(md.id);
         if (!existing) {
-          unified.set(md.id, { ...md, models: merged });
+          // Provider records may be created by any provider-catalog source, but
+          // model ENTRIES only by the builtin baseline (config came earlier and
+          // keeps priority through fill-missing order).
+          unified.set(md.id, { ...md, models: isBaseline ? md.models : [] });
           continue;
         }
         existing.name = existing.name || md.name;
-        existing.logoUrl = existing.logoUrl || md.logoUrl;
+        existing.logo = existing.logo || md.logo;
         existing.api = existing.api || md.api;
         existing.doc = existing.doc || md.doc;
         existing.env = existing.env || md.env;
         existing.sources = addSource(existing.sources, src.def.id as CatalogSourceId);
-        existing.models = mergeModels(merged, existing.models); // config models win
+        if (isBaseline) existing.models = mergeModels(existing.models, md.models);
       }
     }
 
-    // 3. model-list sources: demux overlay onto matching providers + own record
+    // 3. model-list sources: enrich EXISTING providers/models only (fill-missing),
+    //    never add model entries — builtin + config define the model universe.
     const ownRecordDone = new Set<string>();
     for (const src of this.modelSources()) {
       const sourceId = src.def.id as CatalogSourceId;
       for (const [vendor, models] of orByVendor) {
         const rec = unified.get(vendor);
         if (!rec) continue;
-        // Only overlay models whose source belongs to this src (demux map is shared)
         rec.sources = addSource(rec.sources, sourceId);
-        rec.models = mergeModels(
-          rec.models,
-          models.filter((m) => !rec.models.some((e) => e.id === m.id && e.source === 'config'))
-        );
+        rec.models = fillOnlyModels(rec.models, models);
       }
       // First-party record for the source itself (e.g. 'openrouter')
       if (!ownRecordDone.has(src.def.id)) {
@@ -228,18 +311,18 @@ export class CatalogRepository {
         const rec = unified.get(src.def.id);
         const models = src.parsed.models!;
         if (rec) {
-          rec.models = mergeModels(models, rec.models.filter((m) => m.source === 'config'));
+          rec.models = fillOnlyModels(rec.models, models);
           rec.sources = addSource(rec.sources, sourceId);
-          if (src.def.id === 'openrouter') rec.logoUrl = OPENROUTER_BRAND_LOGO;
+          if (src.def.id === 'openrouter') rec.logo = OPENROUTER_BRAND_LOGO;
         } else {
           unified.set(src.def.id, {
             id: src.def.id,
             name: src.def.id,
-            logoUrl: src.def.id === 'openrouter' ? OPENROUTER_BRAND_LOGO : modelsDevLogoUrl(src.def.id),
+            logo: src.def.id === 'openrouter' ? OPENROUTER_BRAND_LOGO : modelsDevLogoUrl(src.def.id),
             custom: false,
             connected: false,
             sources: [sourceId],
-            models,
+            models: [], // extension source — no model entries of its own
           });
         }
       }
@@ -256,11 +339,14 @@ export class CatalogRepository {
       }
     }
 
-    return Array.from(unified.values()).sort(
-      (a, b) =>
-        Number(b.custom || b.connected) - Number(a.custom || a.connected) ||
-        (a.name || '').localeCompare(b.name || '')
-    );
+    // 5. serve logos through the local disk-cache proxy (offline-safe page loads)
+    return Array.from(unified.values())
+      .map((rec) => ({ ...rec, logo: localLogoApiPath(rec.logo) }))
+      .sort(
+        (a, b) =>
+          Number(b.custom || b.connected) - Number(a.custom || a.connected) ||
+          (a.name || '').localeCompare(b.name || '')
+      );
   }
 
   async getProvider(id: string): Promise<CatalogProviderRecord | undefined> {
@@ -270,7 +356,7 @@ export class CatalogRepository {
   /** Cheapest known input price ($/1M); negative promo prices are ignored. */
   minInputPrice(rec: CatalogProviderRecord): number | undefined {
     const prices = rec.models
-      .map((m) => m.pricing?.input)
+      .map((m) => m.cost?.input)
       .filter((v): v is number => typeof v === 'number' && v >= 0);
     return prices.length > 0 ? Math.min(...prices) : undefined;
   }

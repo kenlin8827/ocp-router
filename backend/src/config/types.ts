@@ -118,8 +118,11 @@ export interface CatalogConfig {
 }
 
 export const DEFAULT_CATALOG_SOURCES: CatalogSourceConfig[] = [
+  // Baseline: the OpenCode built-in catalog (models.dev) — lowest priority number,
+  // processed first, so its non-blank values win and later sources only fill blanks.
+  { id: 'builtin', type: 'provider-catalog', url: 'https://models.dev/api.json', enabled: true, priority: 10 },
+  // Extension sources fill missing fields only (never overwrite non-blank values).
   { id: 'openrouter', type: 'model-list', url: 'https://openrouter.ai/api/v1/models', enabled: true, priority: 30 },
-  { id: 'models-dev', type: 'provider-catalog', url: 'https://models.dev/api.json', enabled: true, priority: 40 },
 ];
 
 export interface RouterConfig {

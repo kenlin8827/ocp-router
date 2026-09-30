@@ -32,7 +32,7 @@ export function normalizeOpenAICompatible(raw: any): CatalogModel[] {
     .map((m) => ({
       id: String(m.id),
       name: m.name || undefined,
-      contextLimit: m.context_length ?? m.context_window ?? m.max_model_len,
+      limit: { context: m.context_length ?? m.context_window ?? m.max_model_len },
       source: 'openai-compatible' as const,
     }));
 }
