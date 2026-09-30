@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { getOcrHomeDir, getInfoFilePath, getLogFilePath, getPidFilePath, getRepoRootDir } from './paths.js';
 import { DaemonInfo } from './types.js';
+import { APP_VERSION } from '../version.js';
 import { getAllClientStatuses } from './clients/index.js';
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -165,7 +166,7 @@ export async function startDaemon(options: { port?: number; host?: string; daemo
         port,
         host,
         startTime: new Date().toISOString(),
-        version: '0.0.1',
+        version: APP_VERSION,
       },
       null,
       2

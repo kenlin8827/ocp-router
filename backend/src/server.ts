@@ -7,6 +7,7 @@ import { PipelineOrchestrator } from './pipeline/orchestrator.js';
 import { ProviderRegistry } from './providers/registry.js';
 import { FinOpsTracker } from './metrics/finops-tracker.js';
 import { ChatCompletionRequest } from './types/openai.js';
+import { APP_VERSION } from './version.js';
 
 export function createServer(
   config: RouterConfig,
@@ -118,6 +119,7 @@ export function createServer(
     const isDegraded = cbSummary.tripped > 0;
     return {
       status: isDegraded ? (cbSummary.healthy === 0 ? 'outage' : 'degraded') : 'ok',
+      version: APP_VERSION,
       timestamp: new Date().toISOString(),
       modelsRegistered: registry.getAllModels().length,
       circuitBreakers: {

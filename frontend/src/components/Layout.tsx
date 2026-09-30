@@ -225,7 +225,7 @@ export const Layout: React.FC = () => {
           <div>
             <div style={{ fontSize: '15px', fontWeight: 800, letterSpacing: '-0.02em' }}>OpenCode Router</div>
             <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontFamily: 'JetBrains Mono, monospace' }}>
-              v1.0.0 • Gateway Console
+              v{__APP_VERSION__} • Gateway Console
             </div>
           </div>
         </div>

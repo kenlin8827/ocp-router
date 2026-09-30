@@ -3,6 +3,7 @@ import { startDaemon, stopDaemon, restartDaemon, getStatusOutput, launchWeb, lau
 import { setupClient, teardownClient, getAllClientStatuses } from './clients/index.js';
 import { registerGlobalShims } from './shim.js';
 import { CliAction, SupportedClient } from './types.js';
+import { APP_VERSION } from '../version.js';
 
 // ANSI color helpers
 const C = {
@@ -18,7 +19,7 @@ const C = {
 
 function printBanner(): void {
   console.log(`
-${C.cyan}${C.bold}  ⚡ OpenCode Router (OCR)${C.reset} ${C.dim}v0.0.1${C.reset}
+${C.cyan}${C.bold}  ⚡ OpenCode Router (OCR)${C.reset} ${C.dim}v${APP_VERSION}${C.reset}
   ${C.dim}High-Performance FinOps & Cascading Gateway for AI Coding Agents${C.reset}
 `);
 }
@@ -94,7 +95,7 @@ async function main(): Promise<void> {
   }
 
   if (args.includes('--version') || args.includes('-v') || action === 'version') {
-    console.log('opencode-router (ocr) v0.0.1');
+    console.log(`opencode-router (ocr) v${APP_VERSION}`);
     return;
   }
 
