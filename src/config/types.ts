@@ -1,6 +1,6 @@
 import { ModelPricing, TierLevel } from '../types/router.js';
 
-import { CircuitBreakerConfig } from '../resilience/types.js';
+import { CircuitBreakerConfig, RetryConfig } from '../resilience/types.js';
 
 export interface ProviderConfig {
   name: string;
@@ -98,9 +98,10 @@ export interface RouterConfig {
   flywheel?: FlywheelConfig;
   session?: SessionConfig;
   circuitBreaker?: CircuitBreakerConfig;
+  retry?: RetryConfig;
   providers?: ProviderConfig[];
   models?: ModelRegistration[];
   baselineModel: string; // Default flagship model id for calculating FinOps cost savings
 }
 
-export type { CircuitBreakerConfig };
+export type { CircuitBreakerConfig, RetryConfig };

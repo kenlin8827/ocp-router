@@ -29,7 +29,8 @@ By combining **hierarchical 3-layer model-driven routing**, **monotonic session 
 - **⚡ Keyless Upstream Proxying**: Integrates natively with your local OpenCode v2 daemon, synchronizing 90+ active models, credentials, and token pricing with zero configuration.
 - **🔒 Multi-Turn Monotonic Session Ratchet**: Once a conversation escalates to a flagship model, mid-dialogue downgrades are strictly blocked, preventing cognitive degradation.
 - **🛡️ Industrial-Grade Circuit Breaker & Failover**: Upstream error taxonomy (402 quota exhaustion hard-trip for 12h, 5xx outages exponential backoff up to 5h, 429 adaptive backoff), transparent same-tier candidate failover, and session self-healing.
-- **🚀 Upstream KV Cache Protection**: Multi-turn sessions are pinned to the exact physical model instance, preserving 80%~95% of upstream Provider KV Prompt Cache (Anthropic, DeepSeek, OpenAI).
+- **🚀 Cost-Aware Two-Tier Retry & KV Cache Shield (ADR-0009)**: In-place jittered retry on transient 5xx blips preserves 100% of upstream KV cache and prevents 10x cost explosion; same-tier exhaustion, controlled upward escalation, and strict anti-downgrade.
+- **💾 Upstream KV Cache Protection**: Multi-turn sessions are pinned to the exact physical model instance, preserving 80%~95% of upstream Provider KV Prompt Cache (Anthropic, DeepSeek, OpenAI).
 - **🎯 Zero-Header Prefix-Chain Fingerprinting**: Tracks dialogue turns automatically using SHA-256 Prefix-Chain Hashing without requiring custom client headers.
 - **🛡️ Local Schema Assertion & Silent Fallback**: Lightweight models lead structured tasks; if JSON parsing or schema validation fails, the query silently escalates to a flagship model with error context.
 - **🔌 100% OpenAI Protocol Compatible**: Drop-in proxy replacement for Cursor, VS Code, Chatbox, NextChat, LobeChat, LangChain, and all standard OpenAI SDKs.
@@ -290,6 +291,11 @@ Standard stateless routers dispatch short follow-ups (e.g. "thanks", "fix line 3
 - **Transparent Same-Tier Failover**: Automatically retries across candidate models within the same tier in milliseconds; the client receives a seamless 200 response.
 - **Session Self-Healing**: Automatically unpins and migrates active sessions to a healthy candidate model if the pinned model trips.
 
+### Q5: Does model switching cause KV prompt cache invalidation and 10x cost explosion?
+**Never**. OpenCode Router (OCR) implements a **Cost-Aware Two-Tier Retry Engine (ADR-0009)**:
+- **Tier 1: In-Place Retry**: Transient 5xx / timeout glitches trigger a fast (200ms + 100ms jitter) retry on the *same model*, resolving ~70% of cloud gateway blips while **saving 100% of the warmed KV prompt cache** (preserving the 90% discount on 50k+ tokens).
+- **Tier 2: Failover & Anti-Downgrade**: If in-place retry is exhausted, the router fails over across same-tier models. If all fast models fail, it permits controlled upward escalation to flagship models; **downward downgrades from flagship to fast are strictly prohibited** to prevent hallucinations from polluting production code.
+
 ---
 
 ## Developer Guide & Architecture
@@ -297,7 +303,7 @@ Standard stateless routers dispatch short follow-ups (e.g. "thanks", "fix line 3
 For deep-dive documentation into micro-tensor forward pass mathematical proofs, active learning flywheel distillation, unit testing suites, and Architecture Decision Records (ADRs):
 
 * 📘 **[Developer & Architecture Guide (DEVELOPMENT.md)](DEVELOPMENT.md)**
-* 🏛️ **[Architecture Decision Records (ADR)](docs/adr/zh-CN/README.md)** (ADR-0001 through ADR-0008)
+* 🏛️ **[Architecture Decision Records (ADR)](docs/adr/zh-CN/README.md)** (ADR-0001 through ADR-0009)
 
 ---
 

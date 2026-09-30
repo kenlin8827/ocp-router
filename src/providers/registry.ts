@@ -159,16 +159,28 @@ export class ProviderRegistry {
   ): Promise<ChatCompletionResponse> {
     const reqAny = request as any;
     if (reqAny.__simulate_error_model__ === model.id || reqAny.__simulate_error_all__) {
-      const status = reqAny.__simulate_status__ || 503;
-      const errorMsg = reqAny.__simulate_message__ || `Simulated error for model ${model.id} (Status ${status})`;
-      throw new UpstreamError({
-        message: errorMsg,
-        status,
-        errorBody: JSON.stringify({ error: { message: errorMsg, code: reqAny.__simulate_code__ } }),
-        provider: model.provider,
-        modelId: model.id,
-        retryAfterSeconds: reqAny.__simulate_retry_after__,
-      });
+      let shouldThrow = true;
+      if (typeof reqAny.__simulate_fail_times__ === 'number') {
+        if (reqAny.__simulate_fail_times__ > 0) {
+          reqAny.__simulate_fail_times__--;
+          shouldThrow = true;
+        } else {
+          shouldThrow = false;
+        }
+      }
+
+      if (shouldThrow) {
+        const status = reqAny.__simulate_status__ || 503;
+        const errorMsg = reqAny.__simulate_message__ || `Simulated error for model ${model.id} (Status ${status})`;
+        throw new UpstreamError({
+          message: errorMsg,
+          status,
+          errorBody: JSON.stringify({ error: { message: errorMsg, code: reqAny.__simulate_code__ } }),
+          provider: model.provider,
+          modelId: model.id,
+          retryAfterSeconds: reqAny.__simulate_retry_after__,
+        });
+      }
     }
 
     const isJsonRequested =

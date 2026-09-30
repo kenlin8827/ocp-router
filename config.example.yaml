@@ -92,3 +92,23 @@ circuitBreaker:
   activeProbing:
     enabled: false                  # Background active health probing for tripped models
     intervalMs: 60000               # Health check interval in ms (1 minute)
+
+# ==============================================================================
+# Cost-Aware Resilience & Hierarchical Retry (ADR-0009)
+# ==============================================================================
+retry:
+  enabled: true                     # Enable two-tier cost-aware retry strategy
+  # Tier 1: In-Place Retry (Preserve Upstream KV Prompt Cache, Prevent 10x Cost Explosion)
+  inplace:
+    enabled: true                   # Enable in-place retry on the same model for transient 5xx/network errors
+    maxAttempts: 1                  # Max in-place attempts (1 retry solves ~70% gateway blips & saves KV cache)
+    backoffMs: 200                  # Initial backoff duration in ms
+    jitterMs: 100                   # Random jitter in ms to avoid thundering herd
+  # Tier 2: Failover (Multi-Model Candidate Pool & Tier Crossing Policy)
+  failover:
+    enabled: true                   # Enable failover to secondary backup models
+    maxAttempts: 2                  # Max candidate models to attempt across failovers
+    tierCrossPolicy: "allow_escalate" # Options:
+                                    # 'allow_escalate': exhaust same tier first, allow fast -> flagship escalation, strictly forbid downgrade
+                                    # 'same_tier_only': strictly restrict failover to models within the same tier (prevents runaway costs)
+

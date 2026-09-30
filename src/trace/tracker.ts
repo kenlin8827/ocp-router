@@ -26,6 +26,10 @@ export interface ExecutionTrace {
     latencyMs: number;
     fallbackOccurred: boolean;
     fallbackReason?: string;
+    failoverOccurred?: boolean;
+    failoverAttempts?: number;
+    failoverPath?: string[];
+    inplaceRetries?: number;
   };
   finops: {
     promptTokens: number;

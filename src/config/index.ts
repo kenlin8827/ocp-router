@@ -56,6 +56,20 @@ const DEFAULT_CONFIG: RouterConfig = {
       intervalMs: 60000,
     },
   },
+  retry: {
+    enabled: true,
+    inplace: {
+      enabled: true,
+      maxAttempts: 1,
+      backoffMs: 200,
+      jitterMs: 100,
+    },
+    failover: {
+      enabled: true,
+      maxAttempts: 2,
+      tierCrossPolicy: 'allow_escalate',
+    },
+  },
   providers: [],
   models: [],
 };
@@ -78,6 +92,11 @@ export function loadConfig(configPath?: string): RouterConfig {
         },
         flywheel: { ...DEFAULT_CONFIG.flywheel, ...parsed?.flywheel },
         circuitBreaker: { ...DEFAULT_CONFIG.circuitBreaker, ...parsed?.circuitBreaker },
+        retry: {
+          enabled: parsed?.retry?.enabled ?? DEFAULT_CONFIG.retry?.enabled,
+          inplace: { ...DEFAULT_CONFIG.retry?.inplace, ...parsed?.retry?.inplace },
+          failover: { ...DEFAULT_CONFIG.retry?.failover, ...parsed?.retry?.failover },
+        },
         providers: parsed?.providers || DEFAULT_CONFIG.providers,
         models: parsed?.models || DEFAULT_CONFIG.models,
       };

@@ -57,3 +57,25 @@ export interface CircuitBreakerSnapshot {
   currentCooldownMs: number;
   halfOpenProbes: number;
 }
+
+export type TierCrossPolicy = 'same_tier_only' | 'allow_escalate';
+
+export interface InPlaceRetryConfig {
+  enabled?: boolean;
+  maxAttempts?: number; // 默认: 1 (瞬时 5xx 原地重试 1 次挽救 KV Cache)
+  backoffMs?: number; // 默认: 200ms
+  jitterMs?: number; // 默认: 100ms
+}
+
+export interface FailoverRetryConfig {
+  enabled?: boolean;
+  maxAttempts?: number; // 最多尝试的候选模型数 (默认: 2)
+  tierCrossPolicy?: TierCrossPolicy; // 'same_tier_only' (严格同级) | 'allow_escalate' (允许向上升档保活，绝不向下跳水)
+}
+
+export interface RetryConfig {
+  enabled?: boolean;
+  inplace?: InPlaceRetryConfig;
+  failover?: FailoverRetryConfig;
+}
+

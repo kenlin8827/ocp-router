@@ -68,7 +68,9 @@ export interface ExecutionResult {
   failoverOccurred?: boolean;
   failoverAttempts?: number;
   failoverPath?: string[];
+  inplaceRetries?: number;
   breakerState?: string;
 }
+
 
 

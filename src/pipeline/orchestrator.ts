@@ -174,6 +174,7 @@ export class PipelineOrchestrator {
     let failoverOccurred = false;
     let failoverAttempts = 1;
     let failoverPath: string[] = [];
+    let inplaceRetries = 0;
 
     // 5. Execution with Cascading Fallback & Schema Assertion
     if (decision.needsSchemaValidation && this.config.fallback.enabled && !request.router_options?.disable_fallback) {
@@ -202,6 +203,7 @@ export class PipelineOrchestrator {
           failoverOccurred = fastResult.failoverOccurred;
           failoverAttempts = fastResult.failoverAttempts;
           failoverPath = fastResult.failoverPath;
+          inplaceRetries += fastResult.inplaceRetries;
         } else {
           assertionError = validation.error || 'Schema validation assertion failed';
         }
@@ -239,6 +241,7 @@ export class PipelineOrchestrator {
         failoverOccurred = flagshipResult.failoverOccurred;
         failoverAttempts = flagshipResult.failoverAttempts;
         failoverPath = flagshipResult.failoverPath;
+        inplaceRetries += flagshipResult.inplaceRetries;
       }
     } else {
       // Standard Direct Model Execution with Multi-Model Failover & Circuit Breaker
@@ -259,6 +262,7 @@ export class PipelineOrchestrator {
       failoverOccurred = execResult.failoverOccurred;
       failoverAttempts = execResult.failoverAttempts;
       failoverPath = execResult.failoverPath;
+      inplaceRetries = execResult.inplaceRetries;
     }
 
     // 6. Post-Turn Registration: Register completed turn prefix fingerprint for zero-header tracking
@@ -339,6 +343,10 @@ export class PipelineOrchestrator {
         latencyMs,
         fallbackOccurred,
         fallbackReason,
+        failoverOccurred,
+        failoverAttempts,
+        failoverPath,
+        inplaceRetries,
       },
       finops: {
         promptTokens: finalResponse!.usage?.prompt_tokens || 0,
@@ -361,6 +369,7 @@ export class PipelineOrchestrator {
       failoverOccurred,
       failoverAttempts,
       failoverPath,
+      inplaceRetries,
       breakerState,
       sessionId,
       sessionRatchetApplied: ratchetResult.ratchetApplied,
@@ -373,10 +382,20 @@ export class PipelineOrchestrator {
   }
 
   /**
-   * Resilient candidate execution pool dispatcher.
-   * Transparently iterates through healthy candidate models in the tier.
-   * If Candidate 1 fails (e.g. 402 quota exhausted, 503 outage, 429 rate limit),
-   * trips the breaker for Candidate 1 and immediately fails over to Candidate 2.
+   * Resilient candidate execution pool dispatcher (ADR-0008, ADR-0009).
+   *
+   * Two-Tier Cost-Aware Resilience Architecture:
+   * 1. In-Place Retry (Preserve Upstream KV Prompt Cache, Prevent 10x Cost Invalidation):
+   *    Transient 5xx / timeouts trigger a fast in-place retry on the SAME candidate model
+   *    with backoff + jitter. If the transient blip recovers, 100% of KV cache is retained!
+   *    Hard errors (402 Quota Exhausted, 401 Auth) skip in-place retry instantly (0 wasted retries).
+   *
+   * 2. Hierarchical Failover (Multi-Model Pool & Tier Crossing Policy):
+   *    If in-place retry fails or error is non-transient (402/429):
+   *    Failover proceeds across candidates in the tier.
+   *    - 'allow_escalate': If all fast-tier models are exhausted, escalate to flagship models.
+   *      Strict Anti-Downgrade: Flagship requests NEVER downgrade to fast tier.
+   *    - 'same_tier_only': Strictly confine failover to the requested tier.
    */
   private async executeCandidatePool(
     request: ChatCompletionRequest,
@@ -391,56 +410,89 @@ export class PipelineOrchestrator {
     failoverOccurred: boolean;
     failoverAttempts: number;
     failoverPath: string[];
+    inplaceRetries: number;
     lastError?: any;
   }> {
     const cbManager = this.registry.getCircuitBreakerManager();
-    const candidateMap = new Map<string, ModelRegistration>();
+    const retryConfig = this.config.retry;
+    const inplaceConfig = retryConfig?.inplace;
+    const failoverConfig = retryConfig?.failover;
 
-    // 1. Add preferred model first if healthy
-    if (preferredModel && cbManager.isAvailable(preferredModel.id)) {
-      candidateMap.set(preferredModel.id, preferredModel);
+    const inplaceEnabled = retryConfig?.enabled !== false && inplaceConfig?.enabled !== false;
+    const maxInplaceAttempts = inplaceEnabled ? (inplaceConfig?.maxAttempts ?? 1) : 0;
+    const backoffMs = inplaceConfig?.backoffMs ?? 200;
+    const jitterMs = inplaceConfig?.jitterMs ?? 100;
+
+    const failoverEnabled = retryConfig?.enabled !== false && failoverConfig?.enabled !== false;
+    const maxFailoverCandidates = failoverEnabled ? (failoverConfig?.maxAttempts ?? 2) : 1;
+    const tierCrossPolicy = failoverConfig?.tierCrossPolicy ?? 'allow_escalate';
+
+    // 1. Build Candidate Pool
+    const primaryMap = new Map<string, ModelRegistration>();
+
+    // A. Add preferred model first if healthy and in tier
+    if (preferredModel && preferredModel.tier === tier && cbManager.isAvailable(preferredModel.id)) {
+      primaryMap.set(preferredModel.id, preferredModel);
     }
 
-    // 2. Add all healthy candidate models for this tier
+    // B. Add all healthy candidate models for this tier (sorted by priority / default)
     for (const m of this.registry.getCandidateModelsForTier(tier, true)) {
-      if (!candidateMap.has(m.id)) candidateMap.set(m.id, m);
+      if (!primaryMap.has(m.id)) primaryMap.set(m.id, m);
     }
 
-    // 3. If no healthy models in tier, try fallback tier (e.g. flagship)
-    if (candidateMap.size === 0 && tier !== 'flagship') {
+    // C. Escalation Candidates (Cross-tier policy)
+    const escalationCandidates: ModelRegistration[] = [];
+    if (tierCrossPolicy === 'allow_escalate' && tier === 'fast') {
+      // Allow fast -> flagship escalation when fast tier fails
       for (const m of this.registry.getCandidateModelsForTier('flagship', true)) {
-        if (!candidateMap.has(m.id)) candidateMap.set(m.id, m);
+        if (!primaryMap.has(m.id)) escalationCandidates.push(m);
+      }
+    }
+    // Strict Anti-Downgrade: if tier === 'flagship', NEVER add 'fast' models!
+
+    // D. If primaryMap is empty (all healthy models unavailable in tier):
+    if (primaryMap.size === 0) {
+      if (escalationCandidates.length > 0) {
+        // Escalate immediately if no healthy fast models exist
+        for (const m of escalationCandidates) {
+          primaryMap.set(m.id, m);
+        }
+      } else {
+        // Last-resort fallback: include any registered models in tier even if OPEN
+        for (const m of this.registry.getCandidateModelsForTier(tier, false)) {
+          if (!primaryMap.has(m.id)) primaryMap.set(m.id, m);
+        }
       }
     }
 
-    // 4. If still empty, add any registered models in tier even if OPEN (last-resort attempt)
-    if (candidateMap.size === 0) {
-      for (const m of this.registry.getCandidateModelsForTier(tier, false)) {
-        if (!candidateMap.has(m.id)) candidateMap.set(m.id, m);
+    // Form final ordered candidate list
+    const candidateList = Array.from(primaryMap.values());
+    // Append escalation candidates if not already present
+    for (const m of escalationCandidates) {
+      if (!candidateList.some(c => c.id === m.id)) {
+        candidateList.push(m);
       }
     }
 
-    // 5. Ultimate fallback if system has any models
-    if (candidateMap.size === 0) {
-      const anyModel = this.registry.getModelForTier(tier, false);
-      if (anyModel) candidateMap.set(anyModel.id, anyModel);
-    }
-
-    const candidateList = Array.from(candidateMap.values());
     let lastError: any = null;
     let failoverAttempts = 0;
+    let totalInplaceRetries = 0;
     const failoverPath: string[] = [];
 
     for (const candidate of candidateList) {
-      failoverAttempts++;
-      failoverPath.push(candidate.id);
+      if (failoverAttempts >= maxFailoverCandidates) {
+        break;
+      }
 
       // Check circuit breaker
       const check = cbManager.canExecute(candidate.id);
-      if (!check.allowed && candidateList.length > 1) {
-        // Skip tripped models if alternative candidates exist in pool
+      if (!check.allowed && candidateList.length > 1 && failoverAttempts < candidateList.length - 1) {
+        // Skip tripped models if alternative untripped candidates exist in pool
         continue;
       }
+
+      failoverAttempts++;
+      failoverPath.push(candidate.id);
 
       const preparedReq = BudgetManager.applyBudget(
         request,
@@ -449,33 +501,65 @@ export class PipelineOrchestrator {
         this.config.budget
       );
 
-      try {
-        const response = await this.registry.execute(preparedReq, candidate);
-        cbManager.recordSuccess(candidate.id);
+      // In-place retry loop on the SAME candidate model
+      let candidateSucceeded = false;
+      let candidateResponse: ChatCompletionResponse | undefined = undefined;
+
+      for (let attempt = 0; attempt <= maxInplaceAttempts; attempt++) {
+        if (attempt > 0) {
+          // Sleep backoff + jitter before in-place retry
+          const sleepMs = backoffMs + Math.random() * jitterMs;
+          await new Promise(resolve => setTimeout(resolve, sleepMs));
+          totalInplaceRetries++;
+        }
+
+        try {
+          candidateResponse = await this.registry.execute(preparedReq, candidate);
+          cbManager.recordSuccess(candidate.id);
+          candidateSucceeded = true;
+          break; // successfully executed on this candidate!
+        } catch (err: any) {
+          lastError = err;
+          const diagnosis = ErrorClassifier.classify(err, candidate.id, candidate.provider, this.config.circuitBreaker);
+          cbManager.recordFailure(candidate.id, diagnosis, candidate.provider);
+
+          // 1. Client error (400 Bad Request, context length exceeded) -> NEVER retriable, fail immediately
+          if (!diagnosis.isRetriable) {
+            return {
+              success: false,
+              failoverOccurred: false,
+              failoverAttempts,
+              failoverPath,
+              inplaceRetries: totalInplaceRetries,
+              lastError: err,
+            };
+          }
+
+          // 2. Hard trip / Quota exhausted (402) / Auth error (401) -> NEVER in-place retry, failover immediately!
+          if (diagnosis.hardTrip || diagnosis.category === 'QUOTA_EXHAUSTED' || diagnosis.category === 'AUTHENTICATION_ERROR') {
+            break; // break in-place loop, move to next candidate
+          }
+
+          // 3. Rate limited (429) -> If backup candidates exist, switch immediately to preserve low latency
+          if (diagnosis.category === 'RATE_LIMITED' && failoverAttempts < maxFailoverCandidates && candidateList.length > failoverAttempts) {
+            break;
+          }
+
+          // 4. Transient error (5xx, timeout) -> loop continues for attempt < maxInplaceAttempts
+        }
+      }
+
+      if (candidateSucceeded && candidateResponse) {
         return {
           success: true,
-          response,
+          response: candidateResponse,
           modelUsed: candidate,
           tierUsed: candidate.tier,
           failoverOccurred: failoverAttempts > 1,
           failoverAttempts,
           failoverPath,
+          inplaceRetries: totalInplaceRetries,
         };
-      } catch (err: any) {
-        lastError = err;
-        const diagnosis = ErrorClassifier.classify(err, candidate.id, candidate.provider, this.config.circuitBreaker);
-        cbManager.recordFailure(candidate.id, diagnosis, candidate.provider);
-
-        // If not retriable (e.g. client parameter error / 400), stop failover immediately
-        if (!diagnosis.isRetriable) {
-          return {
-            success: false,
-            failoverOccurred: false,
-            failoverAttempts,
-            failoverPath,
-            lastError: err,
-          };
-        }
       }
     }
 
@@ -484,7 +568,9 @@ export class PipelineOrchestrator {
       failoverOccurred: failoverAttempts > 1,
       failoverAttempts,
       failoverPath,
+      inplaceRetries: totalInplaceRetries,
       lastError: lastError || new Error(`No available models for tier '${tier}'`),
     };
   }
 }
+

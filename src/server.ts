@@ -303,6 +303,7 @@ export function createServer(
       reply.header('X-OCR-Failover', result.failoverOccurred ? 'true' : 'false');
       reply.header('X-OCR-Failover-Attempts', (result.failoverAttempts || 1).toString());
       reply.header('X-OCR-Failover-Path', result.failoverPath?.join(' -> ') || '');
+      reply.header('X-OCR-InPlace-Retries', (result.inplaceRetries || 0).toString());
       reply.header('X-OCR-Breaker-State', result.breakerState || 'CLOSED');
       reply.header('X-OCR-Session-ID', result.sessionId || '');
       reply.header('X-OCR-Session-Ratchet', result.sessionRatchetApplied ? 'true' : 'false');
@@ -326,6 +327,7 @@ export function createServer(
           'X-OCR-Failover': result.failoverOccurred ? 'true' : 'false',
           'X-OCR-Failover-Attempts': (result.failoverAttempts || 1).toString(),
           'X-OCR-Failover-Path': result.failoverPath?.join(' -> ') || '',
+          'X-OCR-InPlace-Retries': (result.inplaceRetries || 0).toString(),
           'X-OCR-Breaker-State': result.breakerState || 'CLOSED',
           'X-OCR-Session-ID': result.sessionId || '',
           'X-OCR-Session-Ratchet': result.sessionRatchetApplied ? 'true' : 'false',
