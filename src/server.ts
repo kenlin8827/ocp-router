@@ -80,10 +80,10 @@ export function createServer(
   // 2. OpenAI-compatible Models list
   app.get('/v1/models', async () => {
     const virtualModels = [
-      { id: 'auto', object: 'model', created: 1700000000, owned_by: 'ocp-router', description: 'Intelligent multi-tier cascading auto-router (Recommended Default)' },
-      { id: 'auto-fast', object: 'model', created: 1700000000, owned_by: 'ocp-router', description: 'Force Fast & low-cost layer (~$0.2/M)' },
-      { id: 'auto-flagship', object: 'model', created: 1700000000, owned_by: 'ocp-router', description: 'Force Flagship workhorse layer (~$3-$15/M)' },
-      { id: 'auto-reasoning', object: 'model', created: 1700000000, owned_by: 'ocp-router', description: 'Force Deep Reasoning specialist layer (~$15-$60/M)' },
+      { id: 'auto', object: 'model', created: 1700000000, owned_by: 'opencode-router', description: 'Intelligent multi-tier cascading auto-router (Recommended Default)' },
+      { id: 'auto-fast', object: 'model', created: 1700000000, owned_by: 'opencode-router', description: 'Force Fast & low-cost layer (~$0.2/M)' },
+      { id: 'auto-flagship', object: 'model', created: 1700000000, owned_by: 'opencode-router', description: 'Force Flagship workhorse layer (~$3-$15/M)' },
+      { id: 'auto-reasoning', object: 'model', created: 1700000000, owned_by: 'opencode-router', description: 'Force Deep Reasoning specialist layer (~$15-$60/M)' },
     ];
 
     const registered = registry.getAllModels().map(m => ({
@@ -120,7 +120,7 @@ export function createServer(
       id: model,
       object: 'model',
       created: 1700000000,
-      owned_by: typeof found === 'object' ? found.provider : 'ocp-router',
+      owned_by: typeof found === 'object' ? found.provider : 'opencode-router',
     };
   });
 
@@ -296,20 +296,20 @@ export function createServer(
 
       const tierHeader = result.tierUsed + (result.fallbackOccurred ? '-escalated' : '');
 
-      // Primary OCP-Router Headers
-      reply.header('X-OCP-Router-Tier', tierHeader);
-      reply.header('X-OCP-Router-Layer', result.layerUsed || 'layer0');
-      reply.header('X-OCP-Router-Model', result.modelUsed);
-      reply.header('X-OCP-Router-Failover', result.failoverOccurred ? 'true' : 'false');
-      reply.header('X-OCP-Router-Failover-Attempts', (result.failoverAttempts || 1).toString());
-      reply.header('X-OCP-Router-Failover-Path', result.failoverPath?.join(' -> ') || '');
-      reply.header('X-OCP-Router-Breaker-State', result.breakerState || 'CLOSED');
-      reply.header('X-OCP-Router-Session-ID', result.sessionId || '');
-      reply.header('X-OCP-Router-Session-Ratchet', result.sessionRatchetApplied ? 'true' : 'false');
-      reply.header('X-OCP-Router-Trace-ID', result.traceId || '');
-      reply.header('X-OCP-Router-Cost-USD', result.costUsd.toFixed(6));
-      reply.header('X-OCP-Router-Saved-USD', result.savedCostUsd.toFixed(6));
-      reply.header('X-OCP-Router-Latency-MS', result.latencyMs.toString());
+      // Primary OCR Headers
+      reply.header('X-OCR-Tier', tierHeader);
+      reply.header('X-OCR-Layer', result.layerUsed || 'layer0');
+      reply.header('X-OCR-Model', result.modelUsed);
+      reply.header('X-OCR-Failover', result.failoverOccurred ? 'true' : 'false');
+      reply.header('X-OCR-Failover-Attempts', (result.failoverAttempts || 1).toString());
+      reply.header('X-OCR-Failover-Path', result.failoverPath?.join(' -> ') || '');
+      reply.header('X-OCR-Breaker-State', result.breakerState || 'CLOSED');
+      reply.header('X-OCR-Session-ID', result.sessionId || '');
+      reply.header('X-OCR-Session-Ratchet', result.sessionRatchetApplied ? 'true' : 'false');
+      reply.header('X-OCR-Trace-ID', result.traceId || '');
+      reply.header('X-OCR-Cost-USD', result.costUsd.toFixed(6));
+      reply.header('X-OCR-Saved-USD', result.savedCostUsd.toFixed(6));
+      reply.header('X-OCR-Latency-MS', result.latencyMs.toString());
 
       // -------------------------------------------------------------
       // SSE Streaming Mode (stream: true)
@@ -320,19 +320,19 @@ export function createServer(
           'Cache-Control': 'no-cache, no-transform',
           Connection: 'keep-alive',
           'Access-Control-Allow-Origin': '*',
-          'X-OCP-Router-Tier': tierHeader,
-          'X-OCP-Router-Layer': result.layerUsed || 'layer0',
-          'X-OCP-Router-Model': result.modelUsed,
-          'X-OCP-Router-Failover': result.failoverOccurred ? 'true' : 'false',
-          'X-OCP-Router-Failover-Attempts': (result.failoverAttempts || 1).toString(),
-          'X-OCP-Router-Failover-Path': result.failoverPath?.join(' -> ') || '',
-          'X-OCP-Router-Breaker-State': result.breakerState || 'CLOSED',
-          'X-OCP-Router-Session-ID': result.sessionId || '',
-          'X-OCP-Router-Session-Ratchet': result.sessionRatchetApplied ? 'true' : 'false',
-          'X-OCP-Router-Trace-ID': result.traceId || '',
-          'X-OCP-Router-Cost-USD': result.costUsd.toFixed(6),
-          'X-OCP-Router-Saved-USD': result.savedCostUsd.toFixed(6),
-          'X-OCP-Router-Latency-MS': result.latencyMs.toString(),
+          'X-OCR-Tier': tierHeader,
+          'X-OCR-Layer': result.layerUsed || 'layer0',
+          'X-OCR-Model': result.modelUsed,
+          'X-OCR-Failover': result.failoverOccurred ? 'true' : 'false',
+          'X-OCR-Failover-Attempts': (result.failoverAttempts || 1).toString(),
+          'X-OCR-Failover-Path': result.failoverPath?.join(' -> ') || '',
+          'X-OCR-Breaker-State': result.breakerState || 'CLOSED',
+          'X-OCR-Session-ID': result.sessionId || '',
+          'X-OCR-Session-Ratchet': result.sessionRatchetApplied ? 'true' : 'false',
+          'X-OCR-Trace-ID': result.traceId || '',
+          'X-OCR-Cost-USD': result.costUsd.toFixed(6),
+          'X-OCR-Saved-USD': result.savedCostUsd.toFixed(6),
+          'X-OCR-Latency-MS': result.latencyMs.toString(),
         });
 
         const fullText = result.response.choices[0]?.message?.content || '';

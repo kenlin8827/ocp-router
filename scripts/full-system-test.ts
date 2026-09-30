@@ -27,7 +27,7 @@ function record(name: string, passed: boolean, start: number, details: string) {
 
 async function run() {
   console.log('\n========================================================================');
-  console.log('🧪 Starting 100% End-to-End Full System Verification for OCP Router');
+  console.log('🧪 Starting 100% End-to-End Full System Verification for OpenCode Router (OCR)');
   console.log('========================================================================\n');
 
   const TEST_PORT = 3100;
@@ -115,8 +115,8 @@ async function run() {
         }),
       });
       const body = await res.json() as any;
-      const tier = res.headers.get('x-ocp-router-tier');
-      const model = res.headers.get('x-ocp-router-model');
+      const tier = res.headers.get('x-ocr-tier');
+      const model = res.headers.get('x-ocr-model');
       answer1 = body.choices?.[0]?.message?.content?.trim() || '';
       const ok = res.status === 200 && ['fast', 'flagship'].includes(tier as string) && answer1.includes('100');
       record('4. Intelligent auto-routing execution (simple arithmetic)', ok, t, `Tier: ${tier}, Model: ${model}, Output: "${answer1}"`);
@@ -161,8 +161,8 @@ async function run() {
         }),
       });
       const body = await res.json() as any;
-      const tier = res.headers.get('x-ocp-router-tier');
-      const model = res.headers.get('x-ocp-router-model');
+      const tier = res.headers.get('x-ocr-tier');
+      const model = res.headers.get('x-ocr-model');
       const ok = res.status === 200 && (tier === 'flagship' || tier === 'reasoning');
       record('6. Intelligent routing Flagship/Reasoning dispatch (high complexity task)', ok, t, `Detected Tier: ${tier}, Assigned Model: ${model}`);
     }
@@ -197,7 +197,7 @@ async function run() {
       } catch {
         isValidJson = false;
       }
-      const tier = res.headers.get('x-ocp-router-tier');
+      const tier = res.headers.get('x-ocr-tier');
       const ok = res.status === 200 && isValidJson && tier?.startsWith('fast');
       record('7. Structured schema static assertion (Fast tier lead)', ok, t, `Valid JSON: ${isValidJson}, Extracted: ${JSON.stringify(parsed)}`);
     }

@@ -64,10 +64,10 @@ describe('Fastify Gateway Server & OpenAI Endpoints', () => {
     });
 
     assert.strictEqual(res.statusCode, 200);
-    assert.ok(['fast', 'flagship'].includes(res.headers['x-ocp-router-tier'] as string));
-    assert.ok(res.headers['x-ocp-router-session-id']);
-    assert.ok(res.headers['x-ocp-router-cost-usd']);
-    assert.ok(res.headers['x-ocp-router-saved-usd']);
+    assert.ok(['fast', 'flagship'].includes(res.headers['x-ocr-tier'] as string));
+    assert.ok(res.headers['x-ocr-session-id']);
+    assert.ok(res.headers['x-ocr-cost-usd']);
+    assert.ok(res.headers['x-ocr-saved-usd']);
 
     const body = JSON.parse(res.body);
     assert.strictEqual(body.object, 'chat.completion');

@@ -1,7 +1,7 @@
 {
-  "name": "ocp-router",
+  "name": "opencode-router",
   "version": "1.0.0",
-  "description": "High-performance OpenCode Proxy Router & Cascading Gateway",
+  "description": "High-performance OpenCode Router (OCR) & Cascading Gateway",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {

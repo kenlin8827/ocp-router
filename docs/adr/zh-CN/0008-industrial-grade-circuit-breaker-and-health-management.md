@@ -32,10 +32,10 @@
 * 每个 Tier 维护优先级候选列表（`primary`, `backup-1`, `backup-2`）；
 * 请求优先派发给主模型；主模型抛出可恢复故障（402/503/429）时，熔断器记录故障并在单次 HTTP 会话内**毫秒级透明转移**至同 Tier 备选模型；
 * 用户无感知拿到 200 成功响应，响应头附带治理追踪元数据：
-  * `X-OCP-Router-Failover: true`
-  * `X-OCP-Router-Failover-Attempts: 2`
-  * `X-OCP-Router-Failover-Path: primary-model -> backup-model`
-  * `X-OCP-Router-Breaker-State: CLOSED`
+  * `X-OCR-Failover: true`
+  * `X-OCR-Failover-Attempts: 2`
+  * `X-OCR-Failover-Path: primary-model -> backup-model`
+  * `X-OCR-Breaker-State: CLOSED`
 
 ### 4. 会话单调棘轮自愈 (Session Self-Healing)
 * 当检测到会话绑定的 `pinnedModel` 进入 `OPEN` 熔断态时，网关自动解绑并将 Session 平滑迁移重绑定（Repin）至健康的同 Tier 备选模型，彻底消除死锁。

@@ -10,7 +10,7 @@ function main() {
 
   const lines = fs.readFileSync(filePath, 'utf8').trim().split('\n').filter(Boolean);
   console.log(`\n======================================================`);
-  console.log(`📊 OCP Router - Active Learning Data Flywheel Analytics`);
+  console.log(`📊 OCR (OpenCode Router) - Active Learning Data Flywheel Analytics`);
   console.log(`======================================================`);
   console.log(`📂 Dataset Path: ${filePath}`);
   console.log(`📝 Total Accumulated Samples: ${lines.length}`);

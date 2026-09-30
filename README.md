@@ -1,4 +1,4 @@
-# OCP Router (OpenCode Proxy Router)
+# OpenCode Router (OCR)
 
 <div align="center">
 
@@ -15,11 +15,11 @@
 
 ---
 
-## What is OCP Router?
+## What is OpenCode Router (OCR)?
 
-**OCP Router** is a high-performance, local-first LLM API cascading router and FinOps orchestration gateway. It connects seamlessly to your local **OpenCode v2** daemon, enabling keyless upstream proxying with zero API key exposure across clients.
+**OpenCode Router (OCR)** is a high-performance, local-first LLM API cascading router and FinOps orchestration gateway. It connects seamlessly to your local **OpenCode v2** daemon, enabling keyless upstream proxying with zero API key exposure across clients.
 
-By combining **hierarchical 3-layer model-driven routing**, **monotonic session ratcheting**, **upstream KV prompt cache protection**, and **local schema static assertions**, OCP Router reduces LLM API expenditures by **70% to 90%** with zero degradation in conversational intellect.
+By combining **hierarchical 3-layer model-driven routing**, **monotonic session ratcheting**, **upstream KV prompt cache protection**, and **local schema static assertions**, OpenCode Router (OCR) reduces LLM API expenditures by **70% to 90%** with zero degradation in conversational intellect.
 
 ---
 
@@ -45,8 +45,8 @@ By combining **hierarchical 3-layer model-driven routing**, **monotonic session 
 ### 2. Installation
 ```bash
 # Clone the repository
-git clone https://github.com/kenlin8827/ocp-router.git
-cd ocp-router
+git clone https://github.com/kenlin8827/opencode-router.git
+cd opencode-router
 
 # Using Bun (Recommended)
 bun install
@@ -91,11 +91,11 @@ Example response:
 
 ## Client Integrations
 
-OCP Router is fully compatible with OpenAI API standards. Simply point your client's **API Base URL** to this gateway.
+OpenCode Router (OCR) is fully compatible with OpenAI API standards. Simply point your client's **API Base URL** to this gateway.
 
 ### 1. Cursor IDE
 1. Open Cursor Settings: `Settings` -> `Models`.
-2. Enable `OpenAI API Key` and enter any placeholder string (e.g., `sk-ocp-router`).
+2. Enable `OpenAI API Key` and enter any placeholder string (e.g., `sk-ocr`).
 3. Expand `Override OpenAI Base URL` and enter:
    ```
    http://127.0.0.1:3000/v1
@@ -113,7 +113,7 @@ from openai import OpenAI
 
 client = OpenAI(
     base_url="http://127.0.0.1:3000/v1",
-    api_key="sk-ocp-router"  # Any placeholder string
+    api_key="sk-ocr"  # Any placeholder string
 )
 
 response = client.chat.completions.create(
@@ -132,7 +132,7 @@ import OpenAI from 'openai';
 
 const openai = new OpenAI({
   baseURL: 'http://127.0.0.1:3000/v1',
-  apiKey: 'sk-ocp-router',
+  apiKey: 'sk-ocr',
 });
 
 async function main() {
@@ -166,7 +166,7 @@ curl http://127.0.0.1:3000/v1/chat/completions \
 
 ## Available Virtual Models
 
-In addition to exposing all registered upstream physical models, OCP Router provides virtual cascading models:
+In addition to exposing all registered upstream physical models, OpenCode Router (OCR) provides virtual cascading models:
 
 | Model ID | Purpose & Behavior | Cost Profile |
 | :--- | :--- | :--- |
@@ -182,18 +182,18 @@ In addition to exposing all registered upstream physical models, OCP Router prov
 
 ### 1. Response Diagnostic Headers
 Every API response includes FinOps diagnostic headers:
-* `X-OCP-Router-Trace-ID`: Unique trace identifier for the request turn (e.g. `trace_8df3e29a...`).
-* `X-OCP-Router-Tier`: Target tier utilized (`fast`, `flagship`, `reasoning`).
-* `X-OCP-Router-Model`: Specific upstream model ID invoked.
-* `X-OCP-Router-Failover`: Whether upstream failover was triggered (`true` / `false`).
-* `X-OCP-Router-Failover-Attempts`: Number of model attempts before success (e.g. `2`).
-* `X-OCP-Router-Failover-Path`: Traversal path taken during failover (e.g. `primary-flagship -> secondary-flagship`).
-* `X-OCP-Router-Breaker-State`: Circuit breaker state of the executing model (`CLOSED`, `HALF_OPEN`).
-* `X-OCP-Router-Session-ID`: Session fingerprint hash (`sess_8df3e29a...`).
-* `X-OCP-Router-Session-Ratchet`: Whether the monotonic ratchet locked the tier (`true` / `false`).
-* `X-OCP-Router-Cost-USD`: Incurred cost for this request.
-* `X-OCP-Router-Saved-USD`: Cost saved relative to the flagship baseline.
-* `X-OCP-Router-Latency-MS`: End-to-end gateway execution latency.
+* `X-OCR-Trace-ID`: Unique trace identifier for the request turn (e.g. `trace_8df3e29a...`).
+* `X-OCR-Tier`: Target tier utilized (`fast`, `flagship`, `reasoning`).
+* `X-OCR-Model`: Specific upstream model ID invoked.
+* `X-OCR-Failover`: Whether upstream failover was triggered (`true` / `false`).
+* `X-OCR-Failover-Attempts`: Number of model attempts before success (e.g. `2`).
+* `X-OCR-Failover-Path`: Traversal path taken during failover (e.g. `primary-flagship -> secondary-flagship`).
+* `X-OCR-Breaker-State`: Circuit breaker state of the executing model (`CLOSED`, `HALF_OPEN`).
+* `X-OCR-Session-ID`: Session fingerprint hash (`sess_8df3e29a...`).
+* `X-OCR-Session-Ratchet`: Whether the monotonic ratchet locked the tier (`true` / `false`).
+* `X-OCR-Cost-USD`: Incurred cost for this request.
+* `X-OCR-Saved-USD`: Cost saved relative to the flagship baseline.
+* `X-OCR-Latency-MS`: End-to-end gateway execution latency.
 
 ### 2. Session State & Turn Management
 
@@ -222,7 +222,7 @@ curl "http://127.0.0.1:3000/v1/traces?limit=20"
 ```
 
 #### 🔬 Single Request Trace Lookup `GET /v1/traces/:id`
-Lookup a specific execution trace using the `X-OCP-Router-Trace-ID` returned in response headers:
+Lookup a specific execution trace using the `X-OCR-Trace-ID` returned in response headers:
 ```bash
 curl http://127.0.0.1:3000/v1/traces/trace_8df3e29a...
 ```
@@ -274,17 +274,17 @@ curl -X POST http://127.0.0.1:3000/v1/health/circuit-breakers/reset
 
 ## FAQ
 
-### Q1: Do I need to enter provider API keys into OCP Router?
-**No**. OCP Router connects directly to your local OpenCode v2 daemon. All credentials, active providers, and pricing tables configured in OpenCode are automatically synchronized and utilized.
+### Q1: Do I need to enter provider API keys into OpenCode Router?
+**No**. OpenCode Router (OCR) connects directly to your local OpenCode v2 daemon. All credentials, active providers, and pricing tables configured in OpenCode are automatically synchronized and utilized.
 
 ### Q2: Why won't conversations become "dumber" mid-dialogue?
-Standard stateless routers dispatch short follow-ups (e.g. "thanks", "fix line 3") to cheap micro-models based on short character length, causing severe hallucinations over 10k+ token histories. OCP Router enforces a **Monotonic Session Ratchet**: once a dialogue reaches flagship tiers, it locks strictly to that tier and pins to the exact same model instance, safeguarding intellect and preserving upstream KV Cache.
+Standard stateless routers dispatch short follow-ups (e.g. "thanks", "fix line 3") to cheap micro-models based on short character length, causing severe hallucinations over 10k+ token histories. OpenCode Router (OCR) enforces a **Monotonic Session Ratchet**: once a dialogue reaches flagship tiers, it locks strictly to that tier and pins to the exact same model instance, safeguarding intellect and preserving upstream KV Cache.
 
 ### Q3: Does the initial untrained micro-model misclassify requests?
 **Never**. The zero-weight base model scaffold ($W=\mathbf{0}, b=\mathbf{0}$) produces a uniform Softmax probability of $\approx 0.334$, strictly below the $0.85$ confidence threshold. This guarantees 100% deterministic cascade to Layer 2 until training samples accumulate.
 
 ### Q4: How does the router handle upstream outages or quota exhaustion?
-**OCP Router provides enterprise-grade resilience & failover (ADR-0008)**:
+**OpenCode Router (OCR) provides enterprise-grade resilience & failover (ADR-0008)**:
 - **Quota / Balance Exhaustion (HTTP 402)**: Hard-trips immediately into OPEN (default 12h cooldown), bypassing the model with zero latency.
 - **Service Outages (5xx / Timeouts)**: Tripped upon consecutive failures or sliding window error rates, applying exponential backoff up to 5 hours max.
 - **Transparent Same-Tier Failover**: Automatically retries across candidate models within the same tier in milliseconds; the client receives a seamless 200 response.

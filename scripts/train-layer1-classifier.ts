@@ -6,7 +6,7 @@ import { TierLevel } from '../src/types/router.js';
 
 async function main() {
   console.log('============================================================');
-  console.log('🧠 ocp-router Layer 1 Classifier Trainer (Active Learning)');
+  console.log('🧠 OCR (OpenCode Router) Layer 1 Classifier Trainer (Active Learning)');
   console.log('============================================================\n');
 
   const datasetPath = path.resolve(process.cwd(), './data/flywheel.jsonl');

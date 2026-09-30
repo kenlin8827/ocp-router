@@ -18,7 +18,7 @@ describe('Session Details & Trajectory Trace Observability Endpoints', () => {
     await app.close();
   });
 
-  it('POST /v1/chat/completions should attach X-OCP-Router-Trace-ID and record execution trajectory', async () => {
+  it('POST /v1/chat/completions should attach X-OCR-Trace-ID and record execution trajectory', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v1/chat/completions',
@@ -32,10 +32,10 @@ describe('Session Details & Trajectory Trace Observability Endpoints', () => {
     });
 
     assert.strictEqual(res.statusCode, 200);
-    const traceId = res.headers['x-ocp-router-trace-id'] as string;
-    const sessionId = res.headers['x-ocp-router-session-id'] as string;
+    const traceId = res.headers['x-ocr-trace-id'] as string;
+    const sessionId = res.headers['x-ocr-session-id'] as string;
 
-    assert.ok(traceId, 'Response header must contain X-OCP-Router-Trace-ID');
+    assert.ok(traceId, 'Response header must contain X-OCR-Trace-ID');
     assert.ok(traceId.startsWith('trace_'), 'Trace ID should have trace_ prefix');
     assert.strictEqual(sessionId, 'sess_unit_test_trace_1');
   });

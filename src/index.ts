@@ -13,7 +13,7 @@ async function main() {
   
   // 0. Auto-initialize Layer 1 model base scaffold
   await Layer1Classifier.init(config.classifier?.localModel);
-  console.log(`[ocp-router] Layer 1 classifier ready: ${Layer1Classifier.getModelStatus()}`);
+  console.log(`[OCR] Layer 1 classifier ready: ${Layer1Classifier.getModelStatus()}`);
   
   // 1. Check OpenCode v2 connection
   const openCodeConnector = new OpenCodeConnector(config.opencode?.url, config.opencode?.password);
@@ -25,11 +25,11 @@ async function main() {
 
   if (openCodeAvailable) {
     const serviceCfg = openCodeConnector.getServiceConfig()!;
-    console.log(`[ocp-router] Connected to local OpenCode v2 service: ${serviceCfg.baseUrl}`);
+    console.log(`[OCR] Connected to local OpenCode v2 service: ${serviceCfg.baseUrl}`);
     
     try {
       const syncedModels = await openCodeConnector.syncToTierModels();
-      console.log(`[ocp-router] Dynamically synchronized ${syncedModels.length} models from OpenCode!`);
+      console.log(`[OCR] Dynamically synchronized ${syncedModels.length} models from OpenCode!`);
 
       config.models = syncedModels;
       const defaultFlagship = syncedModels.find(m => m.tier === 'flagship' && m.isDefaultInTier) || syncedModels[0];
@@ -45,13 +45,13 @@ async function main() {
       }
       registry.registerProvider('opencode', openCodeProxy);
 
-      console.log(`[ocp-router] Connected to ${providers.length} upstream providers via OpenCode (Keyless proxy pass-through)`);
+      console.log(`[OCR] Connected to ${providers.length} upstream providers via OpenCode (Keyless proxy pass-through)`);
     } catch (err: any) {
-      console.warn(`[ocp-router] OpenCode model sync failed, falling back to standalone config: ${err.message}`);
+      console.warn(`[OCR] OpenCode model sync failed, falling back to standalone config: ${err.message}`);
       registry = new ProviderRegistry(config, true);
     }
   } else {
-    console.log('[ocp-router] No OpenCode v2 local service detected, using config.yaml static setup');
+    console.log('[OCR] No OpenCode v2 local service detected, using config.yaml static setup');
     registry = new ProviderRegistry(config, false);
   }
 
@@ -61,7 +61,7 @@ async function main() {
   try {
     await app.listen({ port: config.port, host: config.host });
     console.log('\n============================================================');
-    console.log(`🚀 OCP Router Gateway is ready! (OpenAI API Compatible)`);
+    console.log(`🚀 OCR Gateway (OpenCode Router) is ready! (OpenAI API Compatible)`);
     console.log(`👉 API Base URL     : http://127.0.0.1:${config.port}/v1`);
     console.log(`👉 Default Model    : auto (Virtual models: auto, auto-fast, auto-flagship, auto-reasoning)`);
     console.log(`👉 Chat Completions : http://127.0.0.1:${config.port}/v1/chat/completions`);

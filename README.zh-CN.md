@@ -1,4 +1,4 @@
-# OCP Router (OpenCode Proxy Router)
+# OpenCode Router (OCR)
 
 <div align="center">
 
@@ -15,9 +15,9 @@
 
 ---
 
-## 什么是 OCP Router？
+## 什么是 OpenCode Router (OCR)？
 
-**OCP Router** 是一个高性能、本地优先的智能 LLM API 级联路由网关。它与本地运行的 **OpenCode v2** 原生联动，让您无需在任何客户端中硬编码或暴露上游供应商的 API Key，同时通过**智能模型分层、多轮会话单调递增锁、上游 KV 缓存保护以及本地语法断言**，在不牺牲回答质量的前提下，将大模型 API 开销降低 **70% 至 90%**。
+**OpenCode Router (OCR)** 是一个高性能、本地优先的智能 LLM API 级联路由网关。它与本地运行的 **OpenCode v2** 原生联动，让您无需在任何客户端中硬编码或暴露上游供应商的 API Key，同时通过**智能模型分层、多轮会话单调递增锁、上游 KV 缓存保护以及本地语法断言**，在不牺牲回答质量的前提下，将大模型 API 开销降低 **70% 至 90%**。
 
 ---
 
@@ -43,8 +43,8 @@
 ### 2. 安装
 ```bash
 # 克隆仓库
-git clone https://github.com/kenlin8827/ocp-router.git
-cd ocp-router
+git clone https://github.com/kenlin8827/opencode-router.git
+cd opencode-router
 
 # 使用 Bun 安装依赖 (推荐)
 bun install
@@ -89,12 +89,12 @@ curl http://127.0.0.1:3000/health
 
 ## 客户端配置接入
 
-OCP Router 完全兼容 OpenAI 协议标准，只需将客户端的 **API Base URL** 指向本网关即可。
+OpenCode Router (OCR) 完全兼容 OpenAI 协议标准，只需将客户端的 **API Base URL** 指向本网关即可。
 
 ### 1. Cursor IDE
 在 Cursor 中接入无需任何额外插件：
 1. 打开 Cursor 设置：`Settings` -> `Models`。
-2. 开启 `OpenAI API Key` 选项，密钥填入任意字符串（如 `sk-ocp-router`）。
+2. 开启 `OpenAI API Key` 选项，密钥填入任意字符串（如 `sk-ocr`）。
 3. 展开 `Override OpenAI Base URL`，填入：
    ```
    http://127.0.0.1:3000/v1
@@ -113,7 +113,7 @@ from openai import OpenAI
 
 client = OpenAI(
     base_url="http://127.0.0.1:3000/v1",
-    api_key="sk-ocp-router"  # 任意占位符
+    api_key="sk-ocr"  # 任意占位符
 )
 
 response = client.chat.completions.create(
@@ -132,7 +132,7 @@ import OpenAI from 'openai';
 
 const openai = new OpenAI({
   baseURL: 'http://127.0.0.1:3000/v1',
-  apiKey: 'sk-ocp-router',
+  apiKey: 'sk-ocr',
 });
 
 async function main() {
@@ -166,7 +166,7 @@ curl http://127.0.0.1:3000/v1/chat/completions \
 
 ## 虚拟模型列表
 
-OCP Router 在暴露上游全部原生模型的同时，提供了开箱即用的**虚拟级联模型**：
+OpenCode Router (OCR) 在暴露上游全部原生模型的同时，提供了开箱即用的**虚拟级联模型**：
 
 | 模型名称 | 定位与适用场景 | 计费成本区间 |
 | :--- | :--- | :--- |
@@ -182,18 +182,18 @@ OCP Router 在暴露上游全部原生模型的同时，提供了开箱即用的
 
 ### 1. 响应诊断头（Response Headers）
 每次 API 调用均会在 HTTP 响应头中注入详细的 FinOps 性能与成本诊断信息：
-* `X-OCP-Router-Tier`：本次实际承接调用的模型层级（`fast`, `flagship`, `reasoning`）。
-* `X-OCP-Router-Model`：实际承接推理的上游模型 ID（例如 `volcengine/kimi-k2.7-code`）。
-* `X-OCP-Router-Failover`：是否触发了同 Tier 上游故障自动转移（`true` / `false`）。
-* `X-OCP-Router-Failover-Attempts`：本次请求尝试调用的模型候选数量（如 `1` 为首次直接成功，`2` 为主模型故障后备用模型成功接管）。
-* `X-OCP-Router-Failover-Path`：故障转移的完整模型调用链路（例如 `primary-flagship -> secondary-flagship`）。
-* `X-OCP-Router-Breaker-State`：承接模型当前的熔断器健康状态（`CLOSED`, `HALF_OPEN`）。
-* `X-OCP-Router-Session-ID`：自动计算出的会话唯一哈希指纹。
-* `X-OCP-Router-Session-Ratchet`：是否触发了多轮只升不降棘轮锁死（`true` / `false`）。
-* `X-OCP-Router-Trace-ID`：本次请求在网关中记录的唯一轨迹 ID（例如 `trace_8df3e29a...`）。
-* `X-OCP-Router-Cost-USD`：本次调用实际产生的费用。
-* `X-OCP-Router-Saved-USD`：相比全程使用旗舰基准模型所**节约的金额**。
-* `X-OCP-Router-Latency-MS`：端到端整体网关路由与执行耗时。
+* `X-OCR-Tier`：本次实际承接调用的模型层级（`fast`, `flagship`, `reasoning`）。
+* `X-OCR-Model`：实际承接推理的上游模型 ID（例如 `volcengine/kimi-k2.7-code`）。
+* `X-OCR-Failover`：是否触发了同 Tier 上游故障自动转移（`true` / `false`）。
+* `X-OCR-Failover-Attempts`：本次请求尝试调用的模型候选数量（如 `1` 为首次直接成功，`2` 为主模型故障后备用模型成功接管）。
+* `X-OCR-Failover-Path`：故障转移的完整模型调用链路（例如 `primary-flagship -> secondary-flagship`）。
+* `X-OCR-Breaker-State`：承接模型当前的熔断器健康状态（`CLOSED`, `HALF_OPEN`）。
+* `X-OCR-Session-ID`：自动计算出的会话唯一哈希指纹。
+* `X-OCR-Session-Ratchet`：是否触发了多轮只升不降棘轮锁死（`true` / `false`）。
+* `X-OCR-Trace-ID`：本次请求在网关中记录的唯一轨迹 ID（例如 `trace_8df3e29a...`）。
+* `X-OCR-Cost-USD`：本次调用实际产生的费用。
+* `X-OCR-Saved-USD`：相比全程使用旗舰基准模型所**节约的金额**。
+* `X-OCR-Latency-MS`：端到端整体网关路由与执行耗时。
 
 ### 2. 会话状态与轨迹观测端点
 
@@ -221,7 +221,7 @@ curl "http://127.0.0.1:3000/v1/traces?limit=20"
 ```
 
 #### 🔬 单次请求轨迹透视 `GET /v1/traces/:id`
-根据响应头中的 `X-OCP-Router-Trace-ID` 查询单次请求的深度调用轨迹：
+根据响应头中的 `X-OCR-Trace-ID` 查询单次请求的深度调用轨迹：
 ```bash
 curl http://127.0.0.1:3000/v1/traces/trace_8df3e29a...
 ```
@@ -292,16 +292,16 @@ curl -X POST http://127.0.0.1:3000/v1/health/circuit-breakers/reset
 ## 常见问题 (FAQ)
 
 ### Q1: 我需要自己注册模型供应商并充值 API Key 吗？
-**不需要**。OCP Router 原生直连您本地已经配置并运行良好的 OpenCode v2 实例。OpenCode 中已配置好的所有可用模型和配额，OCP Router 会自动同步并直接代理。
+**不需要**。OpenCode Router (OCR) 原生直连您本地已经配置并运行良好的 OpenCode v2 实例。OpenCode 中已配置好的所有可用模型和配额，OpenCode Router 会自动同步并直接代理。
 
 ### Q2: 为什么多轮对话中途不会变笨？
-传统基于单条请求的无状态路由器，在面对超长上下文中的简短追问（如“好的谢谢”、“改下第3行”）时，常因字数极短而错误分发给 fast 轻量小模型，导致小模型面对超万 Token 严重幻觉。OCP Router 采用**单调递增棘轮状态机（Monotonic Session Ratchet）**，一旦会话进入深度旗舰状态，后续轮次被单向锁死、只升不降，且物理固定同一模型实例，保障智力持续高水平并锁定上游 KV Cache。
+传统基于单条请求的无状态路由器，在面对超长上下文中的简短追问（如“好的谢谢”、“改下第3行”）时，常因字数极短而错误分发给 fast 轻量小模型，导致小模型面对超万 Token 严重幻觉。OpenCode Router (OCR) 采用**单调递增棘轮状态机（Monotonic Session Ratchet）**，一旦会话进入深度旗舰状态，后续轮次被单向锁死、只升不降，且物理固定同一模型实例，保障智力持续高水平并锁定上游 KV Cache。
 
 ### Q3: 本地分类小模型冷启动时会误判吗？
 **绝不会**。系统默认附带的未训练微张量底座经过严密数学设计（$W=\mathbf{0}, b=\mathbf{0}$），Softmax 理论概率均匀分布为 $\approx 0.334$，必然小于 $0.85$ 门控阈值。在积累足够生产飞轮数据并执行蒸馏微调前，100% 确定性优雅穿透至 Layer 2 专职裁决模型。
 
 ### Q4: 上游某个模型突然欠费或宕机 5 小时怎么办？
-**OCP Router 拥有顶级工业级弹性熔断与故障转移能力 (ADR-0008)**：
+**OpenCode Router (OCR) 拥有顶级工业级弹性熔断与故障转移能力 (ADR-0008)**：
 - **欠费 / 额度耗尽 (HTTP 402)**：系统即刻将其硬熔断（默认避让 12 小时），后续请求零耗时绕开，绝不会反复冲击上游导致超时；
 - **服务雪崩 / 宕机**：连续失败或滑动窗口超限后触发熔断并以指数退避（最高 5 小时封顶）；冷却结束后以微量 Canary 试探探活；
 - **同 Tier 透明故障转移 (Failover)**：若 Primary 模型挂了，系统在同一次请求内毫秒级自动切换至同 Tier 的 Backup 备用模型，客户端无感获得 200 响应；

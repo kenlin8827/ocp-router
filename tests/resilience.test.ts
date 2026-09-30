@@ -437,8 +437,8 @@ describe('Resilience: REST Observability & Administrative API Endpoints', () => 
     });
 
     assert.equal(res.statusCode, 200);
-    assert.equal(res.headers['x-ocp-router-failover'], 'false');
-    assert.equal(res.headers['x-ocp-router-failover-attempts'], '1');
-    assert.equal(res.headers['x-ocp-router-breaker-state'], 'CLOSED');
+    assert.equal(res.headers['x-ocr-failover'], 'false');
+    assert.equal(res.headers['x-ocr-failover-attempts'], '1');
+    assert.equal(res.headers['x-ocr-breaker-state'], 'CLOSED');
   });
 });
