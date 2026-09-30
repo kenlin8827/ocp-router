@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Sliders, Save, Check } from 'lucide-react';
 import { api } from '../lib/api';
 import { useI18n } from '../i18n/I18nContext';
+import { useToast } from '../components/ToastProvider';
 
 export const SettingsPage: React.FC = () => {
   const { t } = useI18n();
+  const toast = useToast();
   const [config, setConfig] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [savedNotice, setSavedNotice] = useState(false);
@@ -22,7 +24,7 @@ export const SettingsPage: React.FC = () => {
       setSavedNotice(true);
       setTimeout(() => setSavedNotice(false), 3000);
     } catch (err: any) {
-      alert('Failed: ' + err.message);
+      toast.error('Failed: ' + err.message);
     }
   };
 

@@ -3,10 +3,12 @@ import { useOutletContext } from 'react-router-dom';
 import { ShieldAlert, RefreshCw, Search } from 'lucide-react';
 import { api, type GatewayStatusResponse, type BreakerInfo } from '../lib/api';
 import { useI18n } from '../i18n/I18nContext';
+import { useToast } from '../components/ToastProvider';
 
 export const GuardrailsPage: React.FC = () => {
   const { status } = useOutletContext<{ status: GatewayStatusResponse | null }>();
   const { t } = useI18n();
+  const toast = useToast();
   const [modelFilter, setModelFilter] = useState('');
   const [isResetting, setIsResetting] = useState(false);
 
@@ -22,9 +24,9 @@ export const GuardrailsPage: React.FC = () => {
     setIsResetting(true);
     try {
       await api.resetBreakers();
-      alert(t('guardrails.resetSuccess'));
+      toast.success(t('guardrails.resetSuccess'));
     } catch (err: any) {
-      alert('Failed: ' + err.message);
+      toast.error('Failed: ' + err.message);
     } finally {
       setIsResetting(false);
     }

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Key, Check, RefreshCw, Trash2, Plug, Plus, Lock } from 'lucide-react';
 import { opencodeApi, type OpenCodeProviderView, type OpenCodeCatalogProvider } from '../lib/api';
 import { useI18n } from '../i18n/I18nContext';
+import { useConfirm } from '../components/ConfirmProvider';
+import { useToast } from '../components/ToastProvider';
 
 const cardStyle: React.CSSProperties = {
   background: 'rgba(255,255,255,0.02)',
@@ -86,6 +88,8 @@ const badgeStyle = (color: string, bg: string): React.CSSProperties => ({
 
 export const KeysPage: React.FC = () => {
   const { t } = useI18n();
+  const confirmDialog = useConfirm();
+  const toast = useToast();
 
   const [ocProviders, setOcProviders] = useState<OpenCodeProviderView[]>([]);
   const [ocPaths, setOcPaths] = useState<{ configPath: string; authPath: string }>({ configPath: '', authPath: '' });
@@ -196,7 +200,7 @@ export const KeysPage: React.FC = () => {
       setConnectKey('');
       await loadOpenCodeProviders();
     } catch (err: any) {
-      alert(`Failed: ${err.message}`);
+      toast.error(`Failed: ${err.message}`);
     } finally {
       setBusy(false);
     }
@@ -212,21 +216,27 @@ export const KeysPage: React.FC = () => {
       setKeyEditValue('');
       await loadOpenCodeProviders();
     } catch (err: any) {
-      alert(`Failed: ${err.message}`);
+      toast.error(`Failed: ${err.message}`);
     } finally {
       setBusy(false);
     }
   };
 
   const handleDelete = async (p: OpenCodeProviderView) => {
-    if (!window.confirm(t('op.deleteConfirm', { id: p.id }))) return;
+    const ok = await confirmDialog({
+      title: t('op.deleteConfirm', { id: p.id }),
+      description: t('op.deletePurge'),
+      danger: true,
+      confirmLabel: t('common.delete'),
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       await opencodeApi.deleteProvider(p.id, true);
       showNotice(t('op.deleted'));
       await loadOpenCodeProviders();
     } catch (err: any) {
-      alert(`Failed: ${err.message}`);
+      toast.error(`Failed: ${err.message}`);
     } finally {
       setBusy(false);
     }
@@ -234,7 +244,7 @@ export const KeysPage: React.FC = () => {
 
   const handleCreateCustom = async () => {
     if (!form.id.trim() || !form.baseURL.trim()) {
-      alert(t('op.idAndUrlRequired'));
+      toast.error(t('op.idAndUrlRequired'));
       return;
     }
     setBusy(true);
@@ -252,7 +262,7 @@ export const KeysPage: React.FC = () => {
       setNpmChoice('');
       await loadOpenCodeProviders();
     } catch (err: any) {
-      alert(`Failed: ${err.message}`);
+      toast.error(`Failed: ${err.message}`);
     } finally {
       setBusy(false);
     }

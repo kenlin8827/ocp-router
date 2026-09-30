@@ -13,9 +13,13 @@ import {
 } from 'lucide-react';
 import { api, type ApiKeyItem } from '../lib/api';
 import { useI18n } from '../i18n/I18nContext';
+import { useConfirm } from '../components/ConfirmProvider';
+import { useToast } from '../components/ToastProvider';
 
 export const ApiKeysPage: React.FC = () => {
   const { t } = useI18n();
+  const confirmDialog = useConfirm();
+  const toast = useToast();
   const [keys, setKeys] = useState<ApiKeyItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -72,26 +76,27 @@ export const ApiKeysPage: React.FC = () => {
       if (res.success) {
         setKeys((prev) => prev.map((k) => (k.id === item.id ? { ...k, enabled: nextState } : k)));
       } else {
-        alert(res.error || t('common.failed'));
+        toast.error(res.error || t('common.failed'));
       }
     } catch (err: any) {
-      alert(err.message || t('common.failed'));
+      toast.error(err.message || t('common.failed'));
     }
   };
 
   const handleDelete = async (item: ApiKeyItem) => {
     const confirmMsg = t('apiKeys.deleteConfirm').replace('{name}', item.name);
-    if (!window.confirm(confirmMsg)) return;
+    const ok = await confirmDialog({ title: confirmMsg, danger: true, confirmLabel: t('common.delete') });
+    if (!ok) return;
 
     try {
       const res = await api.deleteApiKey(item.id);
       if (res.success) {
         setKeys((prev) => prev.filter((k) => k.id !== item.id));
       } else {
-        alert(res.error || t('common.failed'));
+        toast.error(res.error || t('common.failed'));
       }
     } catch (err: any) {
-      alert(err.message || t('common.failed'));
+      toast.error(err.message || t('common.failed'));
     }
   };
 

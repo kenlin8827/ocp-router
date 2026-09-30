@@ -6,6 +6,9 @@ export const enUS: TranslationDict = {
     failed: 'Operation failed: ',
     success: 'Operation succeeded',
     saveFailed: 'Save failed: ',
+    confirm: 'Confirm',
+    cancel: 'Cancel',
+    delete: 'Delete',
   },
   nav: {
     overview: 'Overview',

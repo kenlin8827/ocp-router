@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Terminal, Check, RefreshCw, Undo2, ArrowUpRight } from 'lucide-react';
 import { api, type ClientStatus } from '../lib/api';
 import { useI18n } from '../i18n/I18nContext';
+import { useToast } from '../components/ToastProvider';
 
 export const ClientsPage: React.FC = () => {
   const { t } = useI18n();
+  const toast = useToast();
   const [clients, setClients] = useState<ClientStatus[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
@@ -30,7 +32,7 @@ export const ClientsPage: React.FC = () => {
       await loadClients();
       setTimeout(() => setActionNotice(null), 3000);
     } catch (err: any) {
-      alert('Failed: ' + err.message);
+      toast.error('Failed: ' + err.message);
     } finally {
       setLoading(false);
     }

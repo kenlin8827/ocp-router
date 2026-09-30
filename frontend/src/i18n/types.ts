@@ -6,6 +6,9 @@ export interface TranslationDict {
     failed: string;
     success: string;
     saveFailed: string;
+    confirm: string;
+    cancel: string;
+    delete: string;
   };
   nav: {
     overview: string;

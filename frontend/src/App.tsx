@@ -10,10 +10,14 @@ import { UsagePage } from './pages/UsagePage';
 import { ClientsPage } from './pages/ClientsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { YamlPage } from './pages/YamlPage';
+import { ConfirmProvider } from './components/ConfirmProvider';
+import { ToastProvider } from './components/ToastProvider';
 
 export const App: React.FC = () => {
   return (
-    <Routes>
+    <ToastProvider>
+      <ConfirmProvider>
+        <Routes>
       <Route path="/" element={<Layout />}>
         <Route index element={<OverviewPage />} />
         <Route path="chains" element={<ChainsPage />} />
@@ -28,6 +32,8 @@ export const App: React.FC = () => {
         <Route path="yaml" element={<YamlPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
-    </Routes>
+        </Routes>
+      </ConfirmProvider>
+    </ToastProvider>
   );
 };

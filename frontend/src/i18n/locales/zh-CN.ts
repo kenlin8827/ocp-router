@@ -6,6 +6,9 @@ export const zhCN: TranslationDict = {
     failed: '操作失败: ',
     success: '操作成功',
     saveFailed: '保存失败: ',
+    confirm: '确认',
+    cancel: '取消',
+    delete: '删除',
   },
   nav: {
     overview: '概览看板',

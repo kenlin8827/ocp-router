@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import { api, type GatewayStatusResponse } from '../lib/api';
 import { useI18n } from '../i18n/I18nContext';
+import { useConfirm } from '../components/ConfirmProvider';
+import { useToast } from '../components/ToastProvider';
 
 interface NavItemDef {
   to: string;
@@ -109,6 +111,8 @@ const ROUTE_META_KEYS: Record<string, { groupKey: string; titleKey: string }> = 
 export const Layout: React.FC = () => {
   const location = useLocation();
   const { lang, setLang, t } = useI18n();
+  const confirmDialog = useConfirm();
+  const toast = useToast();
   const [status, setStatus] = useState<GatewayStatusResponse | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
@@ -141,19 +145,20 @@ export const Layout: React.FC = () => {
   const handleResetBreakers = async () => {
     try {
       await api.resetBreakers();
-      alert(t('header.resetSuccess'));
+      toast.success(t('header.resetSuccess'));
       const data = await api.getStatus();
       setStatus(data);
     } catch (err: any) {
-      alert(t('header.resetFailed') + err.message);
+      toast.error(t('header.resetFailed') + err.message);
     }
   };
 
   const handleRestartGateway = async () => {
-    if (!confirm(t('header.restartConfirm'))) return;
+    const ok = await confirmDialog({ title: t('header.restartConfirm') });
+    if (!ok) return;
     try {
       await api.restartGateway();
-      alert(t('header.restarting'));
+      toast.info(t('header.restarting'));
       setTimeout(() => window.location.reload(), 1500);
     } catch {
       setTimeout(() => window.location.reload(), 1500);
