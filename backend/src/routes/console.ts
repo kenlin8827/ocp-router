@@ -16,6 +16,205 @@ import {
 
 export { validateApiKey };
 
+/**
+ * Catalog-style model payload → opencode v2 model definition shape
+ * (https://opencode.ai/v2/docs/models/): capabilities{tools,input,output},
+ * limit, settings.reasoningEffort, headers, body, compatibility.reasoningField,
+ * variants, modelID, disabled.
+ */
+function bodyToModelDef(body: any): Record<string, any> {
+  if (body?.definition && typeof body.definition === 'object') return { ...body.definition };
+  const def: Record<string, any> = {};
+  if (body?.name) def.name = String(body.name);
+  if (body?.modelID) def.modelID = String(body.modelID);
+  if (body?.disabled != null) def.disabled = Boolean(body.disabled);
+
+  // capabilities: tools + input/output modality lists (present in payload = full replace)
+  const caps: Record<string, any> = {};
+  if (body?.capabilities?.tools != null) caps.tools = Boolean(body.capabilities.tools);
+  else if (body?.toolCall != null) caps.tools = Boolean(body.toolCall);
+  const inList = body?.capabilities?.input ?? body?.modalities?.input;
+  if (Array.isArray(inList)) {
+    const vals = inList.map((x: any) => String(x)).filter(Boolean);
+    if (vals.length > 0) caps.input = vals;
+  }
+  const outList = body?.capabilities?.output ?? body?.modalities?.output;
+  if (Array.isArray(outList)) {
+    const vals = outList.map((x: any) => String(x)).filter(Boolean);
+    if (vals.length > 0) caps.output = vals;
+  }
+  if (body?.capabilities && typeof body.capabilities === 'object') def.capabilities = caps;
+  else if (Object.keys(caps).length > 0) def.capabilities = caps;
+
+  const limit: Record<string, number> = {};
+  if (body?.contextLimit) limit.context = Number(body.contextLimit);
+  if (body?.outputLimit) limit.output = Number(body.outputLimit);
+  if (Object.keys(limit).length > 0) def.limit = limit;
+
+  if (body?.cost && typeof body.cost === 'object') {
+    const c: Record<string, number> = {};
+    for (const k of ['input', 'output', 'cache_read', 'cache_write'] as const) {
+      const v = (body.cost as any)[k];
+      if (typeof v === 'number' && Number.isFinite(v)) c[k] = v;
+    }
+    if (Object.keys(c).length > 0) def.cost = c;
+  }
+
+  // settings.reasoningEffort (thinking level); presence in payload = full replace
+  if (body?.settings && typeof body.settings === 'object') {
+    const s: Record<string, any> = {};
+    if (body.settings.reasoningEffort) s.reasoningEffort = String(body.settings.reasoningEffort);
+    def.settings = s;
+  } else if (body?.reasoningEffort) {
+    def.settings = { reasoningEffort: String(body.reasoningEffort) };
+  }
+
+  // headers: { Name: Value } map or "Name: Value" lines (presence = full replace)
+  if (body?.headers && typeof body.headers === 'object' && !Array.isArray(body.headers)) {
+    const h: Record<string, string> = {};
+    for (const [k, v] of Object.entries(body.headers)) {
+      if (k && typeof v === 'string' && v) h[k] = v;
+    }
+    def.headers = h;
+  } else if (typeof body?.headersText === 'string') {
+    const h: Record<string, string> = {};
+    for (const line of body.headersText.split('\n')) {
+      const idx = line.indexOf(':');
+      if (idx > 0) {
+        const k = line.slice(0, idx).trim();
+        const v = line.slice(idx + 1).trim();
+        if (k && v) h[k] = v;
+      }
+    }
+    def.headers = h; // may be {} — clears old headers
+  }
+
+  // body: provider-specific request body fields (JSON object; presence = full replace)
+  if (body?.body && typeof body.body === 'object' && !Array.isArray(body.body)) {
+    def.body = body.body;
+  } else if (typeof body?.bodyText === 'string') {
+    let parsed: any = {};
+    if (body.bodyText.trim()) {
+      try {
+        parsed = JSON.parse(body.bodyText);
+      } catch {
+        parsed = {}; // UI validates before submit
+      }
+    }
+    def.body = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  }
+
+  // compatibility.reasoningField (presence = full replace)
+  if (body?.compatibility && typeof body.compatibility === 'object') {
+    const c: Record<string, any> = {};
+    if (body.compatibility.reasoningField) c.reasoningField = String(body.compatibility.reasoningField);
+    def.compatibility = c;
+  }
+
+  // variants: [{ id, settings: { reasoningEffort } }]
+  if (Array.isArray(body?.variants)) {
+    const variants = body.variants
+      .filter((v: any) => v && typeof v === 'object' && v.id)
+      .map((v: any) => {
+        const entry: Record<string, any> = { id: String(v.id) };
+        if (v.settings?.reasoningEffort) entry.settings = { reasoningEffort: String(v.settings.reasoningEffort) };
+        return entry;
+      });
+    if (variants.length > 0) def.variants = variants;
+  }
+  return def;
+}
+
+/** CatalogModel is already in the OpenCode schema — strip id/source, pass the rest through. */
+function catalogModelToDef(m: Record<string, any>): Record<string, any> {
+  const def: Record<string, any> = {};
+  for (const [k, v] of Object.entries(m)) {
+    if (k === 'id' || k === 'source') continue;
+    if (v !== undefined) def[k] = v;
+  }
+  return def;
+}
+
+/**
+ * Live pull: fetch the provider's own /v1/models (OpenAI-compatible) using its
+ * configured baseURL + credential, so self-hosted gateways absent from the
+ * static catalog can still be populated. Every failure mode surfaces a real
+ * error (auth, DNS, HTTP status) — never a silent empty result.
+ */
+async function livePullModels(id: string, body: { pattern?: string; dryRun?: boolean }, reply: any) {
+  const { getProviderNodeById, getProviderModelDefs, upsertProviderModel, matchesGlobPattern, expandEnvTemplate, readAuthEntries } =
+    await import('../opencode/user-config.js');
+  const def = getProviderNodeById(id);
+  if (!def) {
+    return reply.status(404).send({ success: false, error: `Provider '${id}' is not defined in opencode.jsonc` });
+  }
+  const baseURL = def?.options?.baseURL;
+  if (!baseURL) {
+    return reply.status(400).send({ success: false, error: `Provider '${id}' has no baseURL configured` });
+  }
+  const inlineKey = expandEnvTemplate(def?.options?.apiKey);
+  const key = inlineKey || readAuthEntries()[id]?.key;
+  if (!key) {
+    return reply.status(400).send({
+      success: false,
+      authHint: true,
+      error: `No API key for '${id}' (auth.json or inline) — cannot authenticate against ${baseURL}`,
+    });
+  }
+
+  const url = `${String(baseURL).replace(/\/+$/, '')}/models`;
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15000) });
+  } catch (err: any) {
+    const cause = err?.cause?.code || err?.cause?.message || err?.message;
+    return reply.status(502).send({ success: false, error: `无法访问 ${url}: ${cause}` });
+  }
+  if (!res.ok) {
+    const text = (await res.text().catch(() => '')).slice(0, 200);
+    const hint =
+      res.status === 401 || res.status === 403
+        ? ' —— 鉴权失败，请检查 API Key'
+        : res.status === 404
+          ? ' —— 端点不存在，baseURL 可能缺少 /v1 后缀'
+          : '';
+    return reply.status(res.status === 401 || res.status === 403 ? 401 : 502).send({
+      success: false,
+      authHint: res.status === 401 || res.status === 403,
+      error: `${url} → HTTP ${res.status}${hint}${text ? ` | ${text}` : ''}`,
+    });
+  }
+  const raw = await res.json().catch(() => null);
+  if (!raw) {
+    return reply.status(502).send({ success: false, error: `${url} 返回了非 JSON 内容` });
+  }
+  const { normalizeOpenAICompatible } = await import('../opencode/catalog/sources/registry.js');
+  const models = normalizeOpenAICompatible(raw);
+  const pattern = body?.pattern?.trim();
+  const matched = models.filter((m) => !pattern || matchesGlobPattern(pattern, m.id));
+  const existing = getProviderModelDefs(id) || {};
+  const pullable = matched.filter((m) => !(m.id in existing));
+  if (body?.dryRun) {
+    return { status: 'ok', live: true, matched: matched.length, pullable: pullable.length, models: pullable };
+  }
+  let pulled = 0;
+  for (const m of pullable) {
+    const result = upsertProviderModel(id, m.id, catalogModelToDef(m));
+    if (!result.success) return reply.status(400).send(result);
+    pulled++;
+  }
+  return {
+    status: 'ok',
+    success: true,
+    live: true,
+    matched: matched.length,
+    pullable: pullable.length,
+    pulled,
+    skipped: matched.length - pullable.length,
+    models: pullable.map((m) => m.id),
+  };
+}
+
 export function registerConsoleRoutes(
   app: FastifyInstance,
   registry: ProviderRegistry,
@@ -70,6 +269,7 @@ export function registerConsoleRoutes(
     '/providers',
     '/keys', // legacy alias for /providers
     '/api-keys',
+    '/models',
     '/clients',
     '/guardrails',
     '/usage',
@@ -317,6 +517,66 @@ export function registerConsoleRoutes(
       }
     },
 
+    /**
+     * One-shot upstream connectivity probe behind the console "Test" buttons.
+     * Resolves baseURL/key/model from body overrides (test-before-save) or
+     * config/auth.json. Config problems (no key/baseURL/model) are 4xx; probe
+     * outcomes (auth failure, network error, upstream error) come back as data
+     * on HTTP 200 with ok:false.
+     */
+    test: async (req: any, reply: any) => {
+      const { id } = req.params as { id: string };
+      const body = (req.body || {}) as { modelId?: string; apiKey?: string; baseURL?: string };
+      const { getProviderNodeById, getProviderModelDefs, expandEnvTemplate, readAuthEntries } = await import(
+        '../opencode/user-config.js'
+      );
+      const def = getProviderNodeById(id);
+      const authEntry = readAuthEntries()[id];
+      const apiKey = body.apiKey || expandEnvTemplate(def?.options?.apiKey) || authEntry?.key || authEntry?.access;
+      if (!apiKey) {
+        return reply.status(400).send({
+          success: false,
+          oauthHint: true,
+          error: `No API key for '${id}' (auth.json or inline). For OAuth-based providers run: opencode auth login ${id}`,
+        });
+      }
+      const { catalogRepository } = await import('../opencode/catalog/repository.js');
+      const cat = (await catalogRepository.list()).find((p) => p.id === id);
+      const baseURL = body.baseURL || def?.options?.baseURL || cat?.baseURL;
+      if (!baseURL) {
+        return reply
+          .status(400)
+          .send({ success: false, error: `无法确定 '${id}' 的 baseURL —— 请先配置带 baseURL 的自定义 provider` });
+      }
+      // model: explicit override (config key or upstream id) → first enabled
+      // config def → first catalog model (auth-only providers)
+      const defs = getProviderModelDefs(id);
+      const upstreamId = (mid: string): string => {
+        const d = defs?.[mid];
+        return d && typeof d === 'object' && d.modelID ? String(d.modelID) : mid;
+      };
+      const enabledDefIds = Object.keys(defs || {}).filter((k) => (defs as any)[k]?.disabled !== true);
+      const modelId = body.modelId
+        ? upstreamId(body.modelId)
+        : enabledDefIds.length > 0
+          ? upstreamId(enabledDefIds[0])
+          : cat?.models[0]?.id;
+      if (!modelId) {
+        return reply.status(400).send({ success: false, error: `'${id}' 没有可用于测试的模型 —— 请先添加模型` });
+      }
+      const { probeProvider, probeKindFor } = await import('../opencode/probe.js');
+      const result = await probeProvider({
+        baseURL,
+        apiKey,
+        model: modelId,
+        kind: probeKindFor(cat?.api, def?.npm),
+        headers: def?.options?.headers,
+        // explicit body.apiKey override is a plain API key, never OAuth
+        oauth: !body.apiKey && authEntry?.type === 'oauth',
+      });
+      return { status: 'ok', provider: id, model: modelId, ...result };
+    },
+
     setKey: async (req: any, reply: any) => {
       const { id } = req.params as { id: string };
       const body = req.body as { apiKey?: string };
@@ -352,6 +612,163 @@ export function registerConsoleRoutes(
         return reply.status(400).send({ success: false, error: err.message });
       }
     },
+
+    // -- Per-provider model maintenance (config-defined providers only) ----
+
+    /** Full model definitions of a config-defined provider (management view). */
+    modelsGet: async (req: any, reply: any) => {
+      const { id } = req.params as { id: string };
+      const { getProviderModelDefs } = await import('../opencode/user-config.js');
+      const defs = getProviderModelDefs(id);
+      if (defs === undefined) {
+        return reply.status(404).send({ success: false, error: `Provider '${id}' is not defined in opencode.jsonc` });
+      }
+      return { status: 'ok', id, models: defs };
+    },
+
+    /** Add one model. Body: catalog-style fields or a raw `definition` object. */
+    modelAdd: async (req: any, reply: any) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as any;
+      const { getProviderModelDefs, upsertProviderModel } = await import('../opencode/user-config.js');
+      if (!body?.id) {
+        return reply.status(400).send({ success: false, error: 'Model id is required' });
+      }
+      const defs = getProviderModelDefs(id);
+      if (defs === undefined) {
+        return reply.status(404).send({ success: false, error: `Provider '${id}' is not defined in opencode.jsonc` });
+      }
+      if (body.id in defs) {
+        return reply.status(409).send({ success: false, error: `Model '${body.id}' already exists — use PATCH to modify it` });
+      }
+      const result = upsertProviderModel(id, String(body.id), bodyToModelDef(body));
+      if (!result.success) return reply.status(400).send(result);
+      return { status: 'ok', success: true, model: body.id };
+    },
+
+    /** Modify one model (partial merge over the existing definition). */
+    modelUpdate: async (req: any, reply: any) => {
+      const { id, modelId } = req.params as { id: string; modelId: string };
+      const body = req.body as any;
+      const { getProviderModelDefs, upsertProviderModel, removeProviderModel } = await import('../opencode/user-config.js');
+      const defs = getProviderModelDefs(id);
+      if (defs === undefined) {
+        return reply.status(404).send({ success: false, error: `Provider '${id}' is not defined in opencode.jsonc` });
+      }
+      if (!(modelId in defs)) {
+        return reply.status(404).send({ success: false, error: `Model '${modelId}' is not defined for provider '${id}'` });
+      }
+      // rename support: newId moves the definition to a new key (write new → remove old)
+      const targetId = body?.newId ? String(body.newId) : modelId;
+      const existing = defs[modelId] && typeof defs[modelId] === 'object' ? defs[modelId] : {};
+      const patch = bodyToModelDef(body);
+      const merged: Record<string, any> = { ...existing, ...patch };
+      // limit/cost: partial merge (the form sends them only when edited)
+      if (patch.limit || existing.limit) merged.limit = { ...(existing.limit || {}), ...(patch.limit || {}) };
+      // cost: a payload carrying a `cost` key replaces it wholesale (the editor
+      // form always sends the full object, so blank fields clear stored prices);
+      // a payload without `cost` keeps the old values. Empty `{}` clears.
+      if (body?.cost && typeof body.cost === 'object') {
+        const c: Record<string, number> = {};
+        for (const k of ['input', 'output', 'cache_read', 'cache_write'] as const) {
+          const v = (body.cost as any)[k];
+          if (typeof v === 'number' && Number.isFinite(v)) c[k] = v;
+        }
+        if (Object.keys(c).length > 0) merged.cost = c;
+        else delete merged.cost; // blank form → drop the key instead of writing `cost: {}`
+      }
+      // v2 composite fields (capabilities/settings/headers/body/compatibility/
+      // variants): the form is a full-definition editor — values present in the
+      // payload (even {}) replace wholesale; absent keys keep their old values.
+      const result = upsertProviderModel(id, targetId, merged);
+      if (!result.success) return reply.status(400).send(result);
+      if (targetId !== modelId) {
+        const rm = removeProviderModel(id, modelId);
+        if (!rm.success) {
+          return reply.status(400).send({
+            success: false,
+            error: `Renamed to '${targetId}' but failed to remove the old entry '${modelId}': ${rm.error}`,
+          });
+        }
+      }
+      return { status: 'ok', success: true, model: targetId, renamed: targetId !== modelId };
+    },
+
+    modelRemove: async (req: any, reply: any) => {
+      const { id, modelId } = req.params as { id: string; modelId: string };
+      const { removeProviderModel } = await import('../opencode/user-config.js');
+      const result = removeProviderModel(id, modelId);
+      if (!result.success) return reply.status(404).send(result);
+      return { status: 'ok', success: true, model: modelId };
+    },
+
+    /**
+     * Pull models into the provider's config definition. Data source is chosen
+     * automatically: providers with baseURL + credential are pulled LIVE from
+     * their own /v1/models (failures surface real errors); providers without a
+     * usable baseURL/key fall back to the static catalog (builtin → extensions).
+     */
+    modelsPull: async (req: any, reply: any) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as { pattern?: string; dryRun?: boolean } | undefined;
+      const { getProviderNodeById, expandEnvTemplate, readAuthEntries } = await import('../opencode/user-config.js');
+      if (!getProviderNodeById(id)) {
+        return reply.status(404).send({
+          success: false,
+          error: `Provider '${id}' is not defined in opencode.jsonc — create it as a custom provider first`,
+        });
+      }
+      const def = getProviderNodeById(id);
+      const inlineKey = expandEnvTemplate(def?.options?.apiKey);
+      const liveCapable = Boolean(def?.options?.baseURL && (inlineKey || readAuthEntries()[id]?.key));
+      if (liveCapable) {
+        return livePullModels(id, body || {}, reply);
+      }
+      const { getProviderModelDefs, upsertProviderModel, matchesGlobPattern } = await import(
+        '../opencode/user-config.js'
+      );
+      const { catalogRepository } = await import('../opencode/catalog/repository.js');
+      const provider = await catalogRepository.getProvider(id);
+      if (!provider) {
+        return reply.status(404).send({ success: false, error: `Provider '${id}' not found in the model catalog` });
+      }
+      const existing = getProviderModelDefs(id) || {};
+      const pattern = body?.pattern?.trim();
+      const matched = provider.models.filter((m) => !pattern || matchesGlobPattern(pattern, m.id));
+      const pullable = matched.filter((m) => !(m.id in existing)); // never overwrite maintained defs
+      // self-hosted gateways are absent from the static catalog — say so instead of a silent 0
+      const notInCatalog = provider.sources.every((s) => s === 'config');
+      const hint = notInCatalog && matched.length === 0 ? 'not-in-catalog' : undefined;
+      if (body?.dryRun) {
+        return { status: 'ok', matched: matched.length, pullable: pullable.length, models: pullable, hint };
+      }
+      let pulled = 0;
+      for (const m of pullable) {
+        const result = upsertProviderModel(id, m.id, catalogModelToDef(m));
+        if (!result.success) return reply.status(400).send(result);
+        pulled++;
+      }
+      return {
+        status: 'ok',
+        success: true,
+        matched: matched.length,
+        pullable: pullable.length,
+        pulled,
+        skipped: matched.length - pullable.length,
+        models: pullable.map((m) => m.id),
+        hint,
+      };
+    },
+
+    /** Clear models — whole node without a pattern, matching ids only with one. */
+    modelsClear: async (req: any, reply: any) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as { pattern?: string } | undefined;
+      const { clearProviderModels } = await import('../opencode/user-config.js');
+      const result = clearProviderModels(id, body?.pattern);
+      if (!result.success) return reply.status(404).send(result);
+      return { status: 'ok', ...result };
+    },
   };
 
   for (const prefix of ['/api/ui', '/api/console']) {
@@ -362,7 +779,16 @@ export function registerConsoleRoutes(
     app.patch(`${prefix}/opencode/providers/:id`, ocHandlers.update);
     app.post(`${prefix}/opencode/providers/:id/connect`, ocHandlers.connect);
     app.post(`${prefix}/opencode/providers/:id/key`, ocHandlers.setKey);
+    app.post(`${prefix}/opencode/providers/:id/test`, ocHandlers.test);
     app.delete(`${prefix}/opencode/providers/:id`, ocHandlers.remove);
+
+    // Per-provider model maintenance (config-defined providers only)
+    app.get(`${prefix}/opencode/providers/:id/models`, ocHandlers.modelsGet);
+    app.post(`${prefix}/opencode/providers/:id/models`, ocHandlers.modelAdd);
+    app.patch(`${prefix}/opencode/providers/:id/models/:modelId`, ocHandlers.modelUpdate);
+    app.delete(`${prefix}/opencode/providers/:id/models/:modelId`, ocHandlers.modelRemove);
+    app.post(`${prefix}/opencode/providers/:id/models/pull`, ocHandlers.modelsPull);
+    app.post(`${prefix}/opencode/providers/:id/models/clear`, ocHandlers.modelsClear);
   }
 
   // 8b. Catalog logo proxy — remote provider logos served from the local disk

@@ -311,6 +311,128 @@ export function deleteCustomProvider(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Per-provider model maintenance (opencode.jsonc `provider.<id>.models`)
+// ---------------------------------------------------------------------------
+
+/** Valid model id inside a provider's `models` map — `/` allowed (aggregator
+ *  gateways return vendor-scoped ids like 'vendor/model'; the key is sent
+ *  verbatim as the upstream `model` field). */
+function isValidModelId(id: string): boolean {
+  return Boolean(id) && /^[A-Za-z0-9][A-Za-z0-9._:\-/]*$/.test(id);
+}
+
+/**
+ * Glob-style pattern match used by model pull/clear.
+ * - Comma-separated alternatives (`gpt-4*, o3*`)
+ * - `*` / `?` wildcards when present, otherwise case-insensitive substring
+ */
+export function matchesGlobPattern(pattern: string, value: string): boolean {
+  const parts = pattern.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  if (parts.length === 0) return true;
+  const v = value.toLowerCase();
+  return parts.some((p) => {
+    if (!/[*?]/.test(p)) return v.includes(p);
+    const regex = new RegExp(
+      '^' + p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$'
+    );
+    return regex.test(v);
+  });
+}
+
+/** Raw model definitions of a config-defined provider ({} when the node has no models yet). */
+export function getProviderModelDefs(id: string): Record<string, any> | undefined {
+  const def = getProviderNodeById(id);
+  if (!def) return undefined;
+  return def.models && typeof def.models === 'object' ? { ...def.models } : {};
+}
+
+/** Add or replace one model inside `provider.<id>.models` (text-level JSONC edit). */
+export function upsertProviderModel(
+  providerId: string,
+  modelId: string,
+  definition: Record<string, any>
+): { success: boolean; error?: string } {
+  if (!getProviderNodeById(providerId)) {
+    return { success: false, error: `Provider '${providerId}' is not defined in opencode.jsonc` };
+  }
+  if (!isValidModelId(modelId)) {
+    return { success: false, error: `Invalid model id: '${modelId}'` };
+  }
+  if (!definition || typeof definition !== 'object') {
+    return { success: false, error: 'Model definition must be an object' };
+  }
+  try {
+    patchJsonc(getOpenCodeConfigPath(), ['provider', providerId, 'models', modelId], definition, {
+      backupSuffix: '.ocr-backup',
+    });
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+/** Remove one model from `provider.<id>.models`. */
+export function removeProviderModel(providerId: string, modelId: string): { success: boolean; error?: string } {
+  const defs = getProviderModelDefs(providerId);
+  if (defs === undefined) {
+    return { success: false, error: `Provider '${providerId}' is not defined in opencode.jsonc` };
+  }
+  if (!(modelId in defs)) {
+    return { success: false, error: `Model '${modelId}' is not defined for provider '${providerId}'` };
+  }
+  try {
+    patchJsonc(getOpenCodeConfigPath(), ['provider', providerId, 'models', modelId], undefined, {
+      backupSuffix: '.ocr-backup',
+    });
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Clear models of a config-defined provider. Without a pattern the whole
+ * `models` node is dropped; with a pattern only matching ids are removed
+ * (per-id edits, so comments on untouched models survive).
+ */
+export function clearProviderModels(
+  providerId: string,
+  pattern?: string
+): { success: boolean; removed?: number; error?: string } {
+  if (!getProviderNodeById(providerId)) {
+    return { success: false, error: `Provider '${providerId}' is not defined in opencode.jsonc` };
+  }
+  const defs = getProviderModelDefs(providerId) || {};
+  const ids = Object.keys(defs);
+  if (ids.length === 0) return { success: true, removed: 0 };
+  try {
+    if (!pattern || !pattern.trim()) {
+      patchJsonc(getOpenCodeConfigPath(), ['provider', providerId, 'models'], undefined, {
+        backupSuffix: '.ocr-backup',
+      });
+      return { success: true, removed: ids.length };
+    }
+    let removed = 0;
+    for (const mid of ids) {
+      if (!matchesGlobPattern(pattern, mid)) continue;
+      patchJsonc(getOpenCodeConfigPath(), ['provider', providerId, 'models', mid], undefined, {
+        backupSuffix: '.ocr-backup',
+      });
+      removed++;
+    }
+    if (removed === ids.length) {
+      // pattern matched everything — drop the now-empty models node too
+      patchJsonc(getOpenCodeConfigPath(), ['provider', providerId, 'models'], undefined, {
+        backupSuffix: '.ocr-backup',
+      });
+    }
+    return { success: true, removed };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
 /**
  * Merge opencode.jsonc provider definitions with auth.json credentials into
  * a single management-safe view (one entry per provider id across both stores).
