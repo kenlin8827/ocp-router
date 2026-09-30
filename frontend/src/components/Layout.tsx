@@ -363,7 +363,7 @@ export const Layout: React.FC = () => {
         <header
           style={{
             backdropFilter: 'blur(20px)',
-            background: 'rgba(9, 9, 11, 0.65)',
+            background: 'var(--header-bg)',
             borderBottom: '1px solid var(--card-border)',
             position: 'sticky',
             top: 0,
