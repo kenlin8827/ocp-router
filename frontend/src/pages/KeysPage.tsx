@@ -7,6 +7,7 @@ import { useI18n } from '../i18n/I18nContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { Combobox } from '../components/Combobox';
+import { Pagination } from '../components/Pagination';
 import { runPool } from '../lib/runPool';
 
 const cardStyle: React.CSSProperties = {
@@ -18,6 +19,9 @@ const cardStyle: React.CSSProperties = {
   flexDirection: 'column',
   gap: '10px',
 };
+
+const CATALOG_PAGE_SIZE = 20;
+const CATALOG_PAGE_SIZES = [10, 20, 50, 100, 200];
 
 /** Fallback npm packages when the models.dev catalog is unavailable. */
 const FALLBACK_NPM_PACKAGES = [
@@ -119,6 +123,8 @@ export const KeysPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'connected' | 'catalog' | 'custom'>('connected');
   const [hideConnected, setHideConnected] = useState(true);
   const [connectedQuery, setConnectedQuery] = useState('');
+  const [catalogPage, setCatalogPage] = useState(1);
+  const [catalogPageSize, setCatalogPageSize] = useState(CATALOG_PAGE_SIZE);
 
   // npm dropdown options: aggregate from models.dev catalog (usage-sorted),
   // always led by the openai-compatible default; offline → curated fallback.
@@ -154,6 +160,11 @@ export const KeysPage: React.FC = () => {
     if (hideConnected) list = list.filter((c) => !connectedIds.has(c.id));
     return list;
   }, [catalog, catalogQuery, hideConnected, connectedIds]);
+
+  const pagedCatalog = catalogResults.slice(
+    (catalogPage - 1) * catalogPageSize,
+    catalogPage * catalogPageSize
+  );
 
   const tabBtn = (tab: typeof activeTab, label: string, count?: number): React.CSSProperties => ({
     padding: '7px 14px',
@@ -543,19 +554,19 @@ export const KeysPage: React.FC = () => {
             style={{ fontSize: 12, flex: 1 }}
             placeholder={t('op.searchCatalog')}
             value={catalogQuery}
-            onChange={e => setCatalogQuery(e.target.value)}
+            onChange={e => { setCatalogQuery(e.target.value); setCatalogPage(1); }}
           />
           <button className="btn btn-sm" onClick={() => loadCatalog(true)}>
             <RefreshCw size={12} />
             <span>{t('op.refreshCatalog')}</span>
           </button>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>
-            <input type="checkbox" checked={hideConnected} onChange={e => setHideConnected(e.target.checked)} />
+            <input type="checkbox" checked={hideConnected} onChange={e => { setHideConnected(e.target.checked); setCatalogPage(1); }} />
             {t('op.hideConnected')}
           </label>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '10px' }}>
-          {catalogResults.slice(0, 60).map(c => {
+          {pagedCatalog.map(c => {
             const connected = connectedIds.has(c.id);
             return (
               <div key={c.id} style={{ ...cardStyle, padding: 12, opacity: connected ? 0.55 : 1 }}>
@@ -605,6 +616,15 @@ export const KeysPage: React.FC = () => {
             <div style={{ color: 'var(--text-dim)', fontSize: 12 }}>{t('op.catalogEmpty')}</div>
           )}
         </div>
+        <Pagination
+          page={catalogPage}
+          pageSize={catalogPageSize}
+          total={catalogResults.length}
+          onChange={setCatalogPage}
+          showSummary
+          pageSizeOptions={CATALOG_PAGE_SIZES}
+          onPageSizeChange={(s) => { setCatalogPageSize(s); setCatalogPage(1); }}
+        />
 
         </>)}
 
