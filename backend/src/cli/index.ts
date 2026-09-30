@@ -18,7 +18,7 @@ const C = {
 
 function printBanner(): void {
   console.log(`
-${C.cyan}${C.bold}  ⚡ OpenCode Router (OCR)${C.reset} ${C.dim}v1.0.0${C.reset}
+${C.cyan}${C.bold}  ⚡ OpenCode Router (OCR)${C.reset} ${C.dim}v0.0.1${C.reset}
   ${C.dim}High-Performance FinOps & Cascading Gateway for AI Coding Agents${C.reset}
 `);
 }
@@ -94,7 +94,7 @@ async function main(): Promise<void> {
   }
 
   if (args.includes('--version') || args.includes('-v') || action === 'version') {
-    console.log('opencode-router (ocr) v1.0.0');
+    console.log('opencode-router (ocr) v0.0.1');
     return;
   }
 

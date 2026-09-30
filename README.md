@@ -82,7 +82,7 @@ Example response:
 ```json
 {
   "status": "healthy",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "modelsCount": 94,
   "timestamp": 1727622400000
 }
