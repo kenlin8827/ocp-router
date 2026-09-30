@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { parse } from 'yaml';
+import { parse, stringify } from 'yaml';
 import dotenv from 'dotenv';
 import { RouterConfig } from './types.js';
 import { DEFAULT_RETRIABLE_CAUSES } from '../resilience/types.js';
@@ -73,12 +73,31 @@ const DEFAULT_CONFIG: RouterConfig = {
       tierCrossPolicy: 'allow_escalate',
     },
   },
+  apiKeys: [],
   providers: [],
   models: [],
 };
 
+export function getConfigPath(customPath?: string): string {
+  if (customPath) return path.resolve(customPath);
+
+  const cwdPath = path.resolve(process.cwd(), 'config.yaml');
+  if (fs.existsSync(cwdPath)) return cwdPath;
+
+  // Fallback: search upward to repository root
+  try {
+    const currentDir = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+    const repoRootPath = path.resolve(currentDir, '..', '..', 'config.yaml'); // backend/src/config -> backend/src -> backend -> root
+    const altRootPath = path.resolve(currentDir, '..', '..', '..', 'config.yaml');
+    if (fs.existsSync(repoRootPath)) return repoRootPath;
+    if (fs.existsSync(altRootPath)) return altRootPath;
+  } catch {}
+
+  return cwdPath;
+}
+
 export function loadConfig(configPath?: string): RouterConfig {
-  const resolvedPath = configPath || path.resolve(process.cwd(), 'config.yaml');
+  const resolvedPath = getConfigPath(configPath);
   if (fs.existsSync(resolvedPath)) {
     try {
       const raw = fs.readFileSync(resolvedPath, 'utf8');
@@ -86,6 +105,7 @@ export function loadConfig(configPath?: string): RouterConfig {
       return {
         ...DEFAULT_CONFIG,
         ...parsed,
+        apiKeys: parsed?.apiKeys || DEFAULT_CONFIG.apiKeys,
         rules: parsed?.rules || DEFAULT_CONFIG.rules,
         fallback: { ...DEFAULT_CONFIG.fallback, ...parsed?.fallback },
         budget: { ...DEFAULT_CONFIG.budget, ...parsed?.budget },
@@ -108,4 +128,39 @@ export function loadConfig(configPath?: string): RouterConfig {
     }
   }
   return DEFAULT_CONFIG;
+}
+
+export function getRawConfig(): string {
+  const configPath = getConfigPath();
+  if (fs.existsSync(configPath)) {
+    return fs.readFileSync(configPath, 'utf8');
+  }
+  return '';
+}
+
+export function saveRawConfig(yamlContent: string): { success: boolean; error?: string } {
+  const configPath = getConfigPath();
+  try {
+    const parsed = parse(yamlContent);
+    if (!parsed || typeof parsed !== 'object') {
+      return { success: false, error: 'YAML must define an object configuration' };
+    }
+    fs.writeFileSync(configPath, yamlContent, 'utf8');
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+export function saveConfig(newConfig: Partial<RouterConfig>): { success: boolean; error?: string } {
+  const configPath = getConfigPath();
+  try {
+    const current = loadConfig();
+    const merged = { ...current, ...newConfig };
+    const yamlContent = stringify(merged);
+    fs.writeFileSync(configPath, yamlContent, 'utf8');
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
 }

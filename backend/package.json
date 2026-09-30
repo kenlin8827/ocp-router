@@ -1,0 +1,30 @@
+{
+  "name": "@opencode-router/backend",
+  "version": "1.0.0",
+  "description": "High-performance OpenCode Router (OCR) Gateway & CLI Core",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test tests",
+    "test:node": "tsx --test tests/**/*.test.ts",
+    "start": "node dist/index.js",
+    "start:bun": "bun src/index.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.0.0",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.1",
+    "yaml": "^2.7.0",
+    "zod": "^3.24.2",
+    "zod-to-json-schema": "^3.24.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  }
+}

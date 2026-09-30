@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { Layer1Classifier } from '../src/router/layer1-classifier.js';
-import { FlywheelRecord } from '../src/flywheel/collector.js';
-import { TierLevel } from '../src/types/router.js';
+import { Layer1Classifier } from '../backend/src/router/layer1-classifier.js';
+import { FlywheelRecord } from '../backend/src/flywheel/collector.js';
+import { TierLevel } from '../backend/src/types/router.js';
 
 async function main() {
   console.log('============================================================');

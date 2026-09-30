@@ -1,0 +1,443 @@
+import React, { useState, useEffect } from 'react';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import {
+  LayoutGrid,
+  Layers,
+  Network,
+  Database,
+  Key,
+  KeyRound,
+  Terminal,
+  ShieldAlert,
+  BarChart3,
+  Sliders,
+  FileCode2,
+  RefreshCw,
+  Search,
+  ChevronDown,
+  RotateCcw,
+  Globe,
+  type LucideIcon,
+} from 'lucide-react';
+import { api, type GatewayStatusResponse } from '../lib/api';
+import { useI18n } from '../i18n/I18nContext';
+
+interface NavItemDef {
+  to: string;
+  labelKey: string;
+  icon: LucideIcon;
+  badge?: string;
+  end?: boolean;
+}
+
+interface NavGroupDef {
+  id: string;
+  headingKey: string;
+  items: NavItemDef[];
+}
+
+const NAV_GROUP_DEFS: NavGroupDef[] = [
+  {
+    id: 'grp-overview',
+    headingKey: 'nav.grpOverview',
+    items: [
+      { to: '/', labelKey: 'nav.overview', icon: LayoutGrid, end: true, badge: 'Live' },
+    ],
+  },
+  {
+    id: 'grp-traffic',
+    headingKey: 'nav.grpTraffic',
+    items: [
+      { to: '/chains', labelKey: 'nav.chains', icon: Layers },
+      { to: '/rules', labelKey: 'nav.rules', icon: Network },
+      { to: '/cache', labelKey: 'nav.cache', icon: Database },
+    ],
+  },
+  {
+    id: 'grp-connections',
+    headingKey: 'nav.grpConnections',
+    items: [
+      { to: '/api-keys', labelKey: 'nav.apiKeys', icon: KeyRound },
+      { to: '/keys', labelKey: 'nav.keys', icon: Key },
+      { to: '/clients', labelKey: 'nav.clients', icon: Terminal, badge: '3' },
+    ],
+  },
+  {
+    id: 'grp-safety',
+    headingKey: 'nav.grpSafety',
+    items: [
+      { to: '/guardrails', labelKey: 'nav.guardrails', icon: ShieldAlert },
+    ],
+  },
+  {
+    id: 'grp-observability',
+    headingKey: 'nav.grpObservability',
+    items: [
+      { to: '/usage', labelKey: 'nav.usage', icon: BarChart3 },
+    ],
+  },
+  {
+    id: 'grp-system',
+    headingKey: 'nav.grpSystem',
+    items: [
+      { to: '/settings', labelKey: 'nav.settings', icon: Sliders },
+      { to: '/yaml', labelKey: 'nav.yaml', icon: FileCode2 },
+    ],
+  },
+];
+
+const ROUTE_META_KEYS: Record<string, { groupKey: string; titleKey: string }> = {
+  '/': { groupKey: 'nav.grpOverview', titleKey: 'nav.overview' },
+  '/chains': { groupKey: 'nav.grpTraffic', titleKey: 'nav.chains' },
+  '/rules': { groupKey: 'nav.grpTraffic', titleKey: 'nav.rules' },
+  '/cache': { groupKey: 'nav.grpTraffic', titleKey: 'nav.cache' },
+  '/api-keys': { groupKey: 'nav.grpConnections', titleKey: 'nav.apiKeys' },
+  '/keys': { groupKey: 'nav.grpConnections', titleKey: 'nav.keys' },
+  '/clients': { groupKey: 'nav.grpConnections', titleKey: 'nav.clients' },
+  '/guardrails': { groupKey: 'nav.grpSafety', titleKey: 'nav.guardrails' },
+  '/usage': { groupKey: 'nav.grpObservability', titleKey: 'nav.usage' },
+  '/settings': { groupKey: 'nav.grpSystem', titleKey: 'nav.settings' },
+  '/yaml': { groupKey: 'nav.grpSystem', titleKey: 'nav.yaml' },
+};
+
+export const Layout: React.FC = () => {
+  const location = useLocation();
+  const { lang, setLang, t } = useI18n();
+  const [status, setStatus] = useState<GatewayStatusResponse | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [theme, setTheme] = useState(() => localStorage.getItem('ocr_theme') || 'obsidian');
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('ocr_theme', theme);
+  }, [theme]);
+
+  // Load gateway status periodically
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const data = await api.getStatus();
+        setStatus(data);
+      } catch (err) {
+        console.warn('Failed to poll gateway status:', err);
+      }
+    };
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const toggleGroup = (groupId: string) => {
+    setCollapsedGroups(prev => ({ ...prev, [groupId]: !prev[groupId] }));
+  };
+
+  const handleResetBreakers = async () => {
+    try {
+      await api.resetBreakers();
+      alert(t('header.resetSuccess'));
+      const data = await api.getStatus();
+      setStatus(data);
+    } catch (err: any) {
+      alert(t('header.resetFailed') + err.message);
+    }
+  };
+
+  const handleRestartGateway = async () => {
+    if (!confirm(t('header.restartConfirm'))) return;
+    try {
+      await api.restartGateway();
+      alert(t('header.restarting'));
+      setTimeout(() => window.location.reload(), 1500);
+    } catch {
+      setTimeout(() => window.location.reload(), 1500);
+    }
+  };
+
+  const currentRouteMeta = ROUTE_META_KEYS[location.pathname] || {
+    groupKey: 'OpenCode Router',
+    titleKey: 'Dashboard',
+  };
+
+  return (
+    <div style={{ display: 'flex', width: '100%', minHeight: '100vh' }}>
+      {/* Sidebar Navigation */}
+      <aside
+        style={{
+          width: '270px',
+          background: 'var(--sidebar-bg)',
+          backdropFilter: 'blur(24px)',
+          borderRight: '1px solid var(--card-border)',
+          display: 'flex',
+          flexDirection: 'column',
+          position: 'sticky',
+          top: 0,
+          height: '100vh',
+          zIndex: 40,
+          overflowY: 'auto',
+        }}
+      >
+        {/* Brand Header */}
+        <div
+          style={{
+            padding: '18px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            borderBottom: '1px solid var(--card-border)',
+            position: 'sticky',
+            top: 0,
+            background: 'var(--sidebar-bg)',
+            zIndex: 10,
+          }}
+        >
+          <div
+            style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '10px',
+              background: 'linear-gradient(135deg, var(--accent), var(--accent-emerald))',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '18px',
+              color: '#000',
+              fontWeight: 800,
+              boxShadow: '0 0 16px var(--accent-glow)',
+            }}
+          >
+            ⚡
+          </div>
+          <div>
+            <div style={{ fontSize: '15px', fontWeight: 800, letterSpacing: '-0.02em' }}>OpenCode Router</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontFamily: 'JetBrains Mono, monospace' }}>
+              v1.0.0 • Gateway Console
+            </div>
+          </div>
+        </div>
+
+        {/* Sidebar Search Bar */}
+        <div style={{ padding: '12px 14px 4px 14px' }}>
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <Search size={13} style={{ position: 'absolute', left: '10px', color: 'var(--text-dim)', pointerEvents: 'none' }} />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder={t('nav.searchPlaceholder')}
+              className="input"
+              style={{
+                fontSize: '12px',
+                padding: '7px 10px 7px 30px',
+                borderRadius: '8px',
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Grouped Multi-Menu Tree */}
+        <div style={{ padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: '14px', flex: 1 }}>
+          {NAV_GROUP_DEFS.map(group => {
+            const filteredItems = group.items.filter(item => {
+              const label = t(item.labelKey);
+              return label.toLowerCase().includes(searchQuery.toLowerCase());
+            });
+
+            if (searchQuery && filteredItems.length === 0) return null;
+            const isCollapsed = !searchQuery && collapsedGroups[group.id];
+
+            return (
+              <div key={group.id} style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                <div
+                  onClick={() => toggleGroup(group.id)}
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    color: 'var(--text-dim)',
+                    padding: '6px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                    borderRadius: '6px',
+                  }}
+                >
+                  <span>{t(group.headingKey)}</span>
+                  <ChevronDown
+                    size={13}
+                    style={{
+                      transition: 'transform 0.2s ease',
+                      transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+                    }}
+                  />
+                </div>
+
+                {!isCollapsed && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    {filteredItems.map(item => {
+                      const Icon = item.icon;
+                      const label = t(item.labelKey);
+                      return (
+                        <NavLink
+                          key={item.to}
+                          to={item.to}
+                          end={item.end}
+                          style={({ isActive }) => ({
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            fontSize: '13px',
+                            fontWeight: isActive ? 600 : 500,
+                            color: isActive ? 'var(--accent)' : 'var(--text-muted)',
+                            background: isActive ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+                            border: isActive ? '1px solid var(--card-border)' : '1px solid transparent',
+                            textDecoration: 'none',
+                            transition: 'all 0.15s ease',
+                          })}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <Icon size={16} />
+                            <span>{label}</span>
+                          </div>
+                          {item.badge && (
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                padding: '1px 6px',
+                                borderRadius: '999px',
+                                background: 'rgba(255, 255, 255, 0.08)',
+                                color: 'var(--text-dim)',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {item.badge}
+                            </span>
+                          )}
+                        </NavLink>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Sidebar Footer */}
+        <div
+          style={{
+            padding: '14px',
+            borderTop: '1px solid var(--card-border)',
+            fontSize: '11px',
+            color: 'var(--text-dim)',
+            textAlign: 'center',
+          }}
+        >
+          OpenCode Router Gateway Console
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        {/* Top Header */}
+        <header
+          style={{
+            backdropFilter: 'blur(20px)',
+            background: 'rgba(9, 9, 11, 0.65)',
+            borderBottom: '1px solid var(--card-border)',
+            position: 'sticky',
+            top: 0,
+            zIndex: 30,
+            padding: '12px 28px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          {/* Breadcrumb Trail */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 500 }}>
+            <span style={{ color: 'var(--text-muted)' }}>{t(currentRouteMeta.groupKey)}</span>
+            <span style={{ color: 'var(--text-dim)' }}>/</span>
+            <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{t(currentRouteMeta.titleKey)}</span>
+          </div>
+
+          {/* Right Action Tools */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {/* Live Status Badge */}
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '7px',
+                padding: '5px 12px',
+                borderRadius: '9999px',
+                fontSize: '12px',
+                fontWeight: 600,
+                background: 'rgba(16, 185, 129, 0.12)',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                color: 'var(--accent-emerald)',
+              }}
+            >
+              <div
+                className="dot-pulse"
+                style={{
+                  width: '7px',
+                  height: '7px',
+                  borderRadius: '50%',
+                  background: 'var(--accent-emerald)',
+                  boxShadow: '0 0 8px var(--accent-emerald)',
+                }}
+              />
+              <span>{t('header.livePort')}</span>
+            </div>
+
+            {/* Language Switcher (i18n) */}
+            <button
+              className="btn"
+              onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              title={t('header.switchLang')}
+            >
+              <Globe size={13} color="var(--accent)" />
+              <span style={{ fontWeight: 700 }}>{t('header.langBtn')}</span>
+            </button>
+
+            {/* Theme Picker */}
+            <select
+              value={theme}
+              onChange={e => setTheme(e.target.value)}
+              className="input"
+              style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', cursor: 'pointer' }}
+            >
+              <option value="obsidian">{t('header.themes.obsidian')}</option>
+              <option value="indigo">{t('header.themes.indigo')}</option>
+              <option value="cyber">{t('header.themes.cyber')}</option>
+              <option value="sunset">{t('header.themes.sunset')}</option>
+              <option value="light">{t('header.themes.light')}</option>
+            </select>
+
+            {/* Quick Actions */}
+            <button className="btn" onClick={handleRestartGateway} title={t('header.restart')}>
+              <RotateCcw size={13} />
+              <span>{t('header.restart')}</span>
+            </button>
+            <button className="btn btn-primary" onClick={handleResetBreakers} title={t('header.resetBreakers')}>
+              <RefreshCw size={13} />
+              <span>{t('header.resetBreakers')}</span>
+            </button>
+          </div>
+        </header>
+
+        {/* Page Content Container */}
+        <main style={{ padding: '28px', flex: 1, minWidth: 0 }}>
+          <Outlet context={{ status }} />
+        </main>
+      </div>
+    </div>
+  );
+};

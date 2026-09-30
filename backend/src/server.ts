@@ -1,6 +1,8 @@
+import { registerConsoleRoutes, validateApiKey } from './routes/console.js';
 import fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import { RouterConfig } from './config/types.js';
+import { loadConfig } from './config/index.js';
 import { PipelineOrchestrator } from './pipeline/orchestrator.js';
 import { ProviderRegistry } from './providers/registry.js';
 import { FinOpsTracker } from './metrics/finops-tracker.js';
@@ -31,17 +33,83 @@ export function createServer(
   // Register CORS to allow any web frontend (Chatbox, NextChat, OpenWebUI)
   app.register(cors, { origin: true });
 
-  // Optional Admin API Key Authorization hook
-  if (config.adminApiKey) {
-    app.addHook('onRequest', async (req, reply) => {
-      if (req.url === '/health' || req.url.startsWith('/v1/health') || req.url === '/v1/models') return;
-      const auth = req.headers.authorization;
-      const token = auth?.replace(/^Bearer\s+/i, '');
-      if (token !== config.adminApiKey) {
-        reply.status(401).send({ error: { message: 'Invalid API Key', type: 'invalid_request_error' } });
-      }
-    });
-  }
+  // Register console dashboard and management routes
+  registerConsoleRoutes(app, registry, orchestrator);
+
+  // Authentication hook: validates adminApiKey (master) or client API keys (apiKeys)
+  app.addHook('preHandler', async (req, reply) => {
+    const diskConfig = loadConfig();
+    const activeKeys =
+      config.apiKeys !== undefined && config.apiKeys.length > 0
+        ? config.apiKeys
+        : diskConfig.apiKeys || config.apiKeys || [];
+    const adminKey = config.adminApiKey !== undefined ? config.adminApiKey : diskConfig.adminApiKey;
+
+    const isAuthEnabled = Boolean(adminKey || (activeKeys && activeKeys.length > 0));
+    if (!isAuthEnabled) return;
+
+    const activeConfig: RouterConfig = {
+      ...config,
+      adminApiKey: adminKey,
+      apiKeys: activeKeys,
+    };
+    const rawUrl = req.url.split('?')[0];
+
+    // Whitelist routes: health probes, frontend assets and UI pages
+    if (
+      rawUrl === '/' ||
+      rawUrl === '/ui' ||
+      rawUrl === '/dashboard' ||
+      rawUrl.startsWith('/assets/') ||
+      rawUrl.startsWith('/api/ui/') ||
+      rawUrl.startsWith('/api/console/') ||
+      rawUrl === '/health' ||
+      rawUrl.startsWith('/v1/health') ||
+      rawUrl === '/v1/models' ||
+      rawUrl === '/chains' ||
+      rawUrl === '/rules' ||
+      rawUrl === '/cache' ||
+      rawUrl === '/keys' ||
+      rawUrl === '/api-keys' ||
+      rawUrl === '/clients' ||
+      rawUrl === '/guardrails' ||
+      rawUrl === '/usage' ||
+      rawUrl === '/settings' ||
+      rawUrl === '/yaml'
+    ) {
+      return;
+    }
+
+    // Extract token from Authorization header or x-api-key header
+    const authHeader = req.headers.authorization;
+    const xApiKeyHeader = req.headers['x-api-key'] as string | undefined;
+    const token = (authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : '') || xApiKeyHeader?.trim() || '';
+
+    if (!token) {
+      return reply.status(401).send({
+        error: {
+          message: 'Missing API Key. Please provide Authorization: Bearer <key> or x-api-key header.',
+          type: 'invalid_request_error',
+          code: 'missing_api_key',
+        },
+      });
+    }
+
+    const validation = validateApiKey(token, activeConfig);
+
+    if (!validation.valid) {
+      return reply.status(401).send({
+        error: {
+          message: validation.error || 'Invalid or disabled API Key',
+          type: 'invalid_request_error',
+          code: 'invalid_api_key',
+        },
+      });
+    }
+
+    // Attach client identity onto request for tracing and logging
+    (req as any).authInfo = validation;
+  });
 
   // 1. Health check (Enriched with Circuit Breaker status)
   app.get('/health', async () => {

@@ -86,10 +86,22 @@ export interface SessionConfig {
   maxSessions?: number; // default: 10000
 }
 
+export interface ApiKeyConfig {
+  id: string; // Unique identifier, e.g. 'key-xxxxxx'
+  name: string; // Client / application name, e.g. 'Cursor IDE', 'NextChat'
+  key: string; // The token string, e.g. 'sk-ocr-xxxxxx'
+  role?: 'admin' | 'user';
+  enabled: boolean;
+  createdAt: string;
+  expiresAt?: string;
+  description?: string;
+}
+
 export interface RouterConfig {
   port: number;
   host: string;
   adminApiKey?: string;
+  apiKeys?: ApiKeyConfig[];
   opencode?: OpenCodeConfig;
   rules?: CustomRule[];
   fallback: FallbackConfig;

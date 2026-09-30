@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -e
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLI_TS="$SCRIPT_DIR/../backend/src/cli/index.ts"
+DIST_JS="$SCRIPT_DIR/../dist/cli/index.js"
+
+if command -v bun >/dev/null 2>&1; then
+  exec bun run "$CLI_TS" "$@"
+elif command -v node >/dev/null 2>&1; then
+  if [ -f "$DIST_JS" ]; then
+    exec node "$DIST_JS" "$@"
+  else
+    exec npx tsx "$CLI_TS" "$@"
+  fi
+else
+  echo "[OCR ERROR] Neither bun nor node found on PATH." >&2
+  exit 1
+fi

@@ -1,18 +1,27 @@
 {
-  "name": "opencode-router",
+  "name": "opencode-router-monorepo",
   "version": "1.0.0",
   "description": "High-performance OpenCode Router (OCR) & Cascading Gateway",
-  "main": "dist/index.js",
+  "private": true,
   "type": "module",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "dev:bun": "bun --watch src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "start:bun": "bun src/index.ts",
-    "test": "tsx --test tests/**/*.test.ts",
-    "test:bun": "bun test",
+    "ocr": "bun backend/src/cli/index.ts",
+    "setup": "bun install && bun run build",
+    "dev": "bun run scripts/dev.ts",
+    "dev:backend": "bun --filter @opencode-router/backend dev",
+    "dev:frontend": "bun --filter @opencode-router/frontend dev",
+    "build": "bun run build:backend && bun run build:frontend",
+    "build:backend": "bun --filter @opencode-router/backend build",
+    "build:frontend": "bun --filter @opencode-router/frontend build",
+    "start": "bun --filter @opencode-router/backend start",
+    "test": "bun --filter @opencode-router/backend test",
+    "test:node": "bun --filter @opencode-router/backend test:node",
     "test:system": "bun run scripts/full-system-test.ts",
+    "typecheck": "bun --filter @opencode-router/backend typecheck && bun --filter @opencode-router/frontend typecheck",
     "train:layer1": "bun run scripts/train-layer1-classifier.ts",
     "flywheel:stats": "bun run scripts/flywheel-stats.ts"
   },
@@ -28,17 +37,13 @@
   ],
   "author": "",
   "license": "MIT",
-  "dependencies": {
-    "fastify": "^5.2.1",
-    "@fastify/cors": "^11.0.0",
-    "dotenv": "^16.4.7",
-    "yaml": "^2.7.0",
-    "zod": "^3.24.2",
-    "zod-to-json-schema": "^3.24.3"
-  },
   "devDependencies": {
     "@types/node": "^22.13.9",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3"
+  },
+  "bin": {
+    "ocr": "./bin/ocr",
+    "opencode-router": "./bin/opencode-router"
   }
 }
