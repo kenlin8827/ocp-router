@@ -1,14 +1,24 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Cpu, RefreshCw, Search, Brain, Wrench } from 'lucide-react';
+import { Cpu, RefreshCw, Search, Brain, Wrench, Eye, AudioLines, Video, Thermometer, Pencil } from 'lucide-react';
 import { opencodeApi, type OpenCodeModelView } from '../lib/api';
 import { useI18n } from '../i18n/I18nContext';
+import { ModelEditDialog } from '../components/ModelEditDialog';
+import { Combobox } from '../components/Combobox';
 
 type SortKey = 'default' | 'priceAsc' | 'priceDesc' | 'contextDesc' | 'name';
 
 const PAGE_SIZE = 200;
 
 /** 200000 → "200K", 1000000 → "1M" */
+const SOURCE_BADGE: Record<string, { color: string; bg: string; labelKey: string }> = {
+  builtin: { color: 'var(--accent)', bg: 'rgba(6,182,212,0.12)', labelKey: 'models.srcBuiltin' },
+  openrouter: { color: '#a78bfa', bg: 'rgba(167,139,250,0.12)', labelKey: 'models.srcOpenrouter' },
+  config: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)', labelKey: 'models.srcConfig' },
+  'openai-compatible': { color: 'var(--text-dim)', bg: 'rgba(255,255,255,0.06)', labelKey: 'models.srcOpenaiCompatible' },
+  service: { color: 'var(--text-dim)', bg: 'rgba(255,255,255,0.06)', labelKey: 'models.srcService' },
+};
+
 const fmtContext = (n?: number): string => {
   if (!n || n <= 0) return '—';
   if (n >= 1_000_000) return `${Number.isInteger(n / 1_000_000) ? n / 1_000_000 : (n / 1_000_000).toFixed(1)}M`;
@@ -18,6 +28,18 @@ const fmtContext = (n?: number): string => {
 
 const fmtPrice = (v?: number): string =>
   typeof v === 'number' && v >= 0 ? `$${v.toFixed(2)}` : '—';
+
+/** Any capability that renders a badge — decides whether the "—" placeholder shows. */
+const hasCapability = (m: OpenCodeModelView): boolean =>
+  Boolean(
+    m.reasoning ||
+      m.tool_call ||
+      m.attachment ||
+      m.temperature ||
+      m.modalities?.input?.includes('image') ||
+      m.modalities?.input?.includes('audio') ||
+      m.modalities?.input?.includes('video')
+  );
 
 const badgeStyle = (color: string, bg: string): React.CSSProperties => ({
   background: bg,
@@ -57,6 +79,7 @@ export const ModelsPage: React.FC = () => {
   const [source, setSource] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [editTarget, setEditTarget] = useState<{ providerId: string; modelId: string } | null>(null);
 
   const [query, setQuery] = useState('');
   const [provider, setProvider] = useState(searchParams.get('provider') || '');
@@ -109,7 +132,7 @@ export const ModelsPage: React.FC = () => {
       );
     });
     const price = (m: OpenCodeModelView) =>
-      typeof m.pricing?.input === 'number' && m.pricing.input >= 0 ? m.pricing.input : Infinity;
+      typeof m.cost?.input === 'number' && m.cost.input >= 0 ? m.cost.input : Infinity;
     switch (sort) {
       case 'priceAsc':
         list = [...list].sort((a, b) => price(a) - price(b));
@@ -118,7 +141,7 @@ export const ModelsPage: React.FC = () => {
         list = [...list].sort((a, b) => price(b) - price(a));
         break;
       case 'contextDesc':
-        list = [...list].sort((a, b) => (b.contextLimit || 0) - (a.contextLimit || 0));
+        list = [...list].sort((a, b) => (b.limit?.context || 0) - (a.limit?.context || 0));
         break;
       case 'name':
         list = [...list].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
@@ -163,31 +186,32 @@ export const ModelsPage: React.FC = () => {
               onChange={(e) => { setQuery(e.target.value); setVisible(PAGE_SIZE); }}
             />
           </div>
-          <select
-            className="input"
-            style={{ fontSize: 12, width: 'auto', cursor: 'pointer' }}
+          <Combobox
+            style={{ fontSize: 12, width: 220, cursor: 'pointer' }}
             value={provider}
-            onChange={(e) => selectProvider(e.target.value)}
-          >
-            <option value="">{t('models.filterAll')}</option>
-            {providerOptions.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name || p.id} ({p.count}){p.connected ? '' : ' ·'}
-              </option>
-            ))}
-          </select>
-          <select
-            className="input"
+            onChange={selectProvider}
+            clearable
+            options={[
+              { value: '', label: t('models.filterAll') },
+              ...providerOptions.map((p) => ({
+                value: p.id,
+                label: p.name || p.id,
+                meta: `(${p.count})${p.connected ? '' : ' ·'}`,
+              })),
+            ]}
+          />
+          <Combobox
             style={{ fontSize: 12, width: 'auto', cursor: 'pointer' }}
             value={sort}
-            onChange={(e) => setSort(e.target.value as SortKey)}
-          >
-            <option value="default">{t('models.sortDefault')}</option>
-            <option value="priceAsc">{t('models.sortPriceAsc')}</option>
-            <option value="priceDesc">{t('models.sortPriceDesc')}</option>
-            <option value="contextDesc">{t('models.sortContextDesc')}</option>
-            <option value="name">{t('models.sortName')}</option>
-          </select>
+            onChange={(v) => setSort(v as SortKey)}
+            options={[
+              { value: 'default', label: t('models.sortDefault') },
+              { value: 'priceAsc', label: t('models.sortPriceAsc') },
+              { value: 'priceDesc', label: t('models.sortPriceDesc') },
+              { value: 'contextDesc', label: t('models.sortContextDesc') },
+              { value: 'name', label: t('models.sortName') },
+            ]}
+          />
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>
             <input
               type="checkbox"
@@ -213,13 +237,25 @@ export const ModelsPage: React.FC = () => {
                 <th style={thStyle}>{t('models.thInput')}</th>
                 <th style={thStyle}>{t('models.thOutput')}</th>
                 <th style={thStyle}>{t('models.thCapabilities')}</th>
+                <th style={thStyle}>{t('models.thSource')}</th>
               </tr>
             </thead>
             <tbody>
               {filtered.slice(0, visible).map((m) => (
                 <tr key={`${m.providerId}/${m.id}`}>
                   <td style={tdStyle}>
-                    <div style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 600, wordBreak: 'break-all' }}>{m.id}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 600, wordBreak: 'break-all' }}>{m.id}</span>
+                      {m.custom && (
+                        <button
+                          title={t('op.pmEdit')}
+                          onClick={() => setEditTarget({ providerId: m.providerId, modelId: m.id })}
+                          style={{ color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'inline-flex', flexShrink: 0 }}
+                        >
+                          <Pencil size={11} />
+                        </button>
+                      )}
+                    </div>
                     {m.name && m.name !== m.id && (
                       <div style={{ fontSize: 10.5, color: 'var(--text-dim)', marginTop: 2 }}>{m.name}</div>
                     )}
@@ -230,30 +266,39 @@ export const ModelsPage: React.FC = () => {
                       <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--text-dim)' }} title={t('models.notConnected')}>○</span>
                     )}
                   </td>
-                  <td style={{ ...tdStyle, fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap' }}>{fmtContext(m.contextLimit)}</td>
-                  <td style={{ ...tdStyle, fontFamily: 'JetBrains Mono, monospace', color: m.pricing?.input !== undefined && m.pricing.input < 1 ? 'var(--accent-emerald)' : undefined, whiteSpace: 'nowrap' }}>
-                    {fmtPrice(m.pricing?.input)}
+                  <td style={{ ...tdStyle, fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap' }}>{fmtContext(m.limit?.context)}</td>
+                  <td style={{ ...tdStyle, fontFamily: 'JetBrains Mono, monospace', color: m.cost?.input !== undefined && m.cost.input < 1 ? 'var(--accent-emerald)' : undefined, whiteSpace: 'nowrap' }}>
+                    {fmtPrice(m.cost?.input)}
                   </td>
-                  <td style={{ ...tdStyle, fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap' }}>{fmtPrice(m.pricing?.output)}</td>
+                  <td style={{ ...tdStyle, fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap' }}>{fmtPrice(m.cost?.output)}</td>
                   <td style={tdStyle}>
                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                       {m.reasoning && <span style={badgeStyle('#a78bfa', 'rgba(167,139,250,0.12)')}><Brain size={10} />{t('models.badgeReasoning')}</span>}
-                      {m.toolCall && <span style={badgeStyle('var(--accent)', 'rgba(6,182,212,0.12)')}><Wrench size={10} />{t('models.badgeToolCall')}</span>}
-                      {!m.reasoning && !m.toolCall && <span style={{ color: 'var(--text-dim)' }}>—</span>}
+                      {m.tool_call && <span style={badgeStyle('var(--accent)', 'rgba(6,182,212,0.12)')}><Wrench size={10} />{t('models.badgeToolCall')}</span>}
+                      {(m.attachment || m.modalities?.input?.includes('image')) && <span style={badgeStyle('#34d399', 'rgba(52,211,153,0.12)')}><Eye size={10} />{t('models.badgeVision')}</span>}
+                      {m.modalities?.input?.includes('audio') && <span style={badgeStyle('#f472b6', 'rgba(244,114,182,0.12)')}><AudioLines size={10} />{t('models.badgeAudio')}</span>}
+                      {m.modalities?.input?.includes('video') && <span style={badgeStyle('#60a5fa', 'rgba(96,165,250,0.12)')}><Video size={10} />{t('models.badgeVideo')}</span>}
+                      {m.temperature && <span style={badgeStyle('#fb923c', 'rgba(251,146,60,0.12)')}><Thermometer size={10} />{t('models.badgeTemperature')}</span>}
+                      {!hasCapability(m) && <span style={{ color: 'var(--text-dim)' }}>—</span>}
                     </div>
+                  </td>
+                  <td style={tdStyle}>
+                    <span style={badgeStyle(SOURCE_BADGE[m.source]?.color ?? 'var(--text-dim)', SOURCE_BADGE[m.source]?.bg ?? 'rgba(255,255,255,0.06)')}>
+                      {t(SOURCE_BADGE[m.source]?.labelKey ?? 'models.srcBuiltin')}
+                    </span>
                   </td>
                 </tr>
               ))}
               {filtered.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={6} style={{ padding: 24, textAlign: 'center', color: 'var(--text-dim)' }}>
+                  <td colSpan={7} style={{ padding: 24, textAlign: 'center', color: 'var(--text-dim)' }}>
                     {t('models.empty')}
                   </td>
                 </tr>
               )}
               {loading && (
                 <tr>
-                  <td colSpan={6} style={{ padding: 24, textAlign: 'center', color: 'var(--text-dim)' }}>
+                  <td colSpan={7} style={{ padding: 24, textAlign: 'center', color: 'var(--text-dim)' }}>
                     {t('common.loading')}
                   </td>
                 </tr>
@@ -271,6 +316,15 @@ export const ModelsPage: React.FC = () => {
             </button>
           )}
         </div>
+
+        {editTarget && (
+          <ModelEditDialog
+            providerId={editTarget.providerId}
+            modelId={editTarget.modelId}
+            onClose={() => setEditTarget(null)}
+            onSaved={load}
+          />
+        )}
       </div>
     </div>
   );

@@ -215,7 +215,7 @@ export interface OpenCodeProviderView {
   baseURL?: string;
   models: string[];
   custom: boolean;
-  logoUrl?: string;
+  logo?: string;
   priceFrom?: number;
   modelsCount?: number;
   auth: {
@@ -230,7 +230,7 @@ export interface OpenCodeProviderView {
 export interface OpenCodeCatalogProvider {
   id: string;
   name: string;
-  logoUrl?: string;
+  logo?: string;
   npm?: string;
   api?: string;
   baseURL?: string;
@@ -255,19 +255,32 @@ export interface CustomProviderPayload {
   options?: Record<string, any>;
 }
 
+/** Result of the one-shot provider/model connectivity probe (POST .../test). */
+export interface TestProviderResult {
+  status: string;
+  ok: boolean;
+  kind?: 'openai' | 'anthropic' | 'google';
+  model?: string;
+  latencyMs?: number;
+  error?: string;
+  authHint?: boolean;
+}
+
 export interface OpenCodeModelView {
   providerId: string;
   providerName?: string;
-  logoUrl?: string;
+  logo?: string;
   custom: boolean;
   connected: boolean;
   id: string;
   name?: string;
+  attachment?: boolean;
   reasoning?: boolean;
-  toolCall?: boolean;
-  contextLimit?: number;
-  outputLimit?: number;
-  pricing?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+  tool_call?: boolean;
+  temperature?: boolean;
+  modalities?: { input?: string[]; output?: string[] };
+  cost?: { input?: number; output?: number; cache_read?: number; cache_write?: number };
+  limit?: { context?: number; output?: number };
   source: string;
 }
 
@@ -340,10 +353,138 @@ export const opencodeApi = {
     );
   },
 
+  /** One-shot upstream connectivity probe — optional overrides enable test-before-save. */
+  async testProvider(
+    id: string,
+    payload?: { modelId?: string; apiKey?: string; baseURL?: string }
+  ): Promise<TestProviderResult> {
+    return ocJson(
+      await fetch(`/api/ui/opencode/providers/${encodeURIComponent(id)}/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload ?? {}),
+      })
+    );
+  },
+
   async deleteProvider(id: string, purgeAuth = false): Promise<{ status: string; success: boolean; message?: string }> {
     return ocJson(
       await fetch(`/api/ui/opencode/providers/${encodeURIComponent(id)}${purgeAuth ? '?purgeAuth=1' : ''}`, {
         method: 'DELETE',
+      })
+    );
+  },
+
+  // -- Per-provider model maintenance (config-defined providers only) ----
+
+  async listProviderModels(id: string): Promise<{ status: string; id: string; models: Record<string, any> }> {
+    return ocJson(await fetch(`/api/ui/opencode/providers/${encodeURIComponent(id)}/models`));
+  },
+
+  async addProviderModel(
+    id: string,
+    model: {
+      id: string;
+      name?: string;
+      modelID?: string;
+      disabled?: boolean;
+      capabilities?: { tools?: boolean; input?: string[]; output?: string[] };
+      settings?: Record<string, any>;
+      headersText?: string;
+      bodyText?: string;
+      compatibility?: { reasoningField?: string };
+      variants?: { id: string; settings?: Record<string, any> }[];
+      reasoning?: boolean;
+      toolCall?: boolean;
+      attachment?: boolean;
+      temperature?: boolean;
+      modalities?: { input?: string[]; output?: string[] };
+      contextLimit?: number;
+      outputLimit?: number;
+      cost?: Record<string, number>;
+      definition?: Record<string, any>;
+    }
+  ): Promise<{ status: string; success: boolean; model: string }> {
+    return ocJson(
+      await fetch(`/api/ui/opencode/providers/${encodeURIComponent(id)}/models`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(model),
+      })
+    );
+  },
+
+  async updateProviderModel(
+    id: string,
+    modelId: string,
+    patch: {
+      name?: string;
+      modelID?: string;
+      disabled?: boolean;
+      capabilities?: { tools?: boolean; input?: string[]; output?: string[] };
+      settings?: Record<string, any>;
+      headersText?: string;
+      bodyText?: string;
+      compatibility?: { reasoningField?: string };
+      variants?: { id: string; settings?: Record<string, any> }[];
+      reasoning?: boolean;
+      toolCall?: boolean;
+      attachment?: boolean;
+      temperature?: boolean;
+      modalities?: { input?: string[]; output?: string[] };
+      contextLimit?: number;
+      outputLimit?: number;
+      newId?: string;
+      cost?: Record<string, number>;
+      definition?: Record<string, any>;
+    }
+  ): Promise<{ status: string; success: boolean; model: string }> {
+    return ocJson(
+      await fetch(`/api/ui/opencode/providers/${encodeURIComponent(id)}/models/${encodeURIComponent(modelId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+    );
+  },
+
+  async deleteProviderModel(id: string, modelId: string): Promise<{ status: string; success: boolean }> {
+    return ocJson(
+      await fetch(`/api/ui/opencode/providers/${encodeURIComponent(id)}/models/${encodeURIComponent(modelId)}`, {
+        method: 'DELETE',
+      })
+    );
+  },
+
+  async pullProviderModels(
+    id: string,
+    opts: { pattern?: string; dryRun?: boolean; live?: boolean } = {}
+  ): Promise<{
+    status: string;
+    live?: boolean;
+    matched?: number;
+    pullable?: number;
+    pulled?: number;
+    skipped?: number;
+    success?: boolean;
+    hint?: string;
+    models: OpenCodeModelView[] | string[];
+  }> {
+    return ocJson(
+      await fetch(`/api/ui/opencode/providers/${encodeURIComponent(id)}/models/pull`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(opts),
+      })
+    );
+  },
+
+  async clearProviderModels(id: string, pattern?: string): Promise<{ status: string; success: boolean; removed?: number }> {
+    return ocJson(
+      await fetch(`/api/ui/opencode/providers/${encodeURIComponent(id)}/models/clear`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pattern }),
       })
     );
   },

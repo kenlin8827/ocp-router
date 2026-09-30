@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
-import { Key, Check, RefreshCw, Trash2, Plug, Plus, Lock } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Key, Check, RefreshCw, Trash2, Plug, Plus, Lock, Cpu, Eye, Zap } from 'lucide-react';
 import { opencodeApi, type OpenCodeProviderView, type OpenCodeCatalogProvider } from '../lib/api';
+import { ProviderModelsDialog } from '../components/ProviderModelsDialog';
 import { useI18n } from '../i18n/I18nContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
+import { Combobox } from '../components/Combobox';
+import { runPool } from '../lib/runPool';
 
 const cardStyle: React.CSSProperties = {
   background: 'rgba(255,255,255,0.02)',
@@ -31,7 +34,7 @@ const CUSTOM_NPM = '__custom__';
 
 /** Provider logo on a light chip (models.dev SVGs are dark glyphs — invisible on
  *  the dark theme without a backing plate). Falls back to an initial-letter chip. */
-const ProviderLogo: React.FC<{ id: string; logoUrl?: string; size?: number }> = ({ id, logoUrl, size = 28 }) => {
+const ProviderLogo: React.FC<{ id: string; logo?: string; size?: number }> = ({ id, logo, size = 28 }) => {
   const [failed, setFailed] = useState(false);
   const chip: React.CSSProperties = {
     width: size,
@@ -45,7 +48,7 @@ const ProviderLogo: React.FC<{ id: string; logoUrl?: string; size?: number }> = 
     flexShrink: 0,
     overflow: 'hidden',
   };
-  if (!logoUrl || failed) {
+  if (!logo || failed) {
     return (
       <div style={chip}>
         <span
@@ -65,7 +68,7 @@ const ProviderLogo: React.FC<{ id: string; logoUrl?: string; size?: number }> = 
   return (
     <div style={chip}>
       <img
-        src={logoUrl}
+        src={logo}
         alt={id}
         width={Math.round(size * 0.72)}
         height={Math.round(size * 0.72)}
@@ -91,6 +94,7 @@ export const KeysPage: React.FC = () => {
   const { t } = useI18n();
   const confirmDialog = useConfirm();
   const toast = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [ocProviders, setOcProviders] = useState<OpenCodeProviderView[]>([]);
   const [ocPaths, setOcPaths] = useState<{ configPath: string; authPath: string }>({ configPath: '', authPath: '' });
@@ -101,6 +105,10 @@ export const KeysPage: React.FC = () => {
   const [connectKey, setConnectKey] = useState('');
   const [keyEditId, setKeyEditId] = useState<string | null>(null);
   const [keyEditValue, setKeyEditValue] = useState('');
+  const [modelsPanelId, setModelsPanelId] = useState<string | null>(null);
+  const [testingIds, setTestingIds] = useState<Set<string>>(new Set());
+  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; model?: string; latencyMs?: number; error?: string }>>({});
+  const [testAll, setTestAll] = useState<{ running: boolean; done: number; total: number }>({ running: false, done: 0, total: 0 });
   const [notice, setNotice] = useState('');
   const [ocError, setOcError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -186,6 +194,17 @@ export const KeysPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Deep link from /models: /providers?openModels=<id> opens the maintenance
+  // dialog for that config-defined provider once the list has loaded.
+  useEffect(() => {
+    const target = searchParams.get('openModels');
+    if (!target || ocProviders.length === 0) return;
+    const p = ocProviders.find((x) => x.id === target);
+    if (p?.custom) setModelsPanelId(target);
+    setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ocProviders, searchParams]);
+
   const showNotice = (msg: string) => {
     setNotice(msg);
     setTimeout(() => setNotice(''), 4000);
@@ -221,6 +240,50 @@ export const KeysPage: React.FC = () => {
     } finally {
       setBusy(false);
     }
+  };
+
+  /** Single probe without toasts — shared by the per-provider button and batch test. */
+  const runTest = async (id: string): Promise<{ ok: boolean; model?: string; latencyMs?: number; error?: string }> => {
+    setTestingIds((prev) => new Set(prev).add(id));
+    try {
+      const r = await opencodeApi.testProvider(id);
+      setTestResults((prev) => ({ ...prev, [id]: r }));
+      return r;
+    } catch (err: any) {
+      const failed = { ok: false, error: err.message };
+      setTestResults((prev) => ({ ...prev, [id]: failed }));
+      return failed;
+    } finally {
+      setTestingIds((prev) => {
+        const n = new Set(prev);
+        n.delete(id);
+        return n;
+      });
+    }
+  };
+
+  const handleTestProvider = async (id: string) => {
+    const r = await runTest(id);
+    if (r.ok) toast.success(t('op.testOkMsg', { model: r.model || id, ms: r.latencyMs ?? 0 }));
+    else toast.error(r.error || t('op.testFailMsg'));
+  };
+
+  /** Batch test: bounded concurrency over the currently visible connected providers. */
+  const handleTestAllProviders = async () => {
+    if (testAll.running || testingIds.size > 0) return;
+    const targets = connectedResults;
+    if (targets.length === 0) return;
+    setTestAll({ running: true, done: 0, total: targets.length });
+    let okCount = 0;
+    await runPool(targets, 4, async (p) => {
+      const r = await runTest(p.id);
+      if (r.ok) okCount++;
+      setTestAll((prev) => ({ ...prev, done: prev.done + 1 }));
+    });
+    setTestAll((prev) => ({ ...prev, running: false }));
+    toast[okCount === targets.length ? 'success' : 'error'](
+      t('op.testAllDone', { ok: okCount, n: targets.length })
+    );
   };
 
   const handleDelete = async (p: OpenCodeProviderView) => {
@@ -315,25 +378,41 @@ export const KeysPage: React.FC = () => {
         <p style={{ color: 'var(--text-dim)', fontSize: 11, margin: '0 0 12px' }} title={`${ocPaths.configPath} | ${ocPaths.authPath}`}>
           {t('op.connectedDesc')}
         </p>
-        <input
-          className="input"
-          style={{ fontSize: 12, maxWidth: 420, marginBottom: 12 }}
-          placeholder={t('op.searchConnected')}
-          value={connectedQuery}
-          onChange={e => setConnectedQuery(e.target.value)}
-        />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+          <input
+            className="input"
+            style={{ fontSize: 12, maxWidth: 420, flex: 1, minWidth: 200 }}
+            placeholder={t('op.searchConnected')}
+            value={connectedQuery}
+            onChange={e => setConnectedQuery(e.target.value)}
+          />
+          <button
+            className="btn btn-sm"
+            disabled={testAll.running || testingIds.size > 0 || connectedResults.length === 0}
+            title={t('op.testAllBtn')}
+            onClick={handleTestAllProviders}
+          >
+            {testAll.running ? <RefreshCw size={12} style={{ animation: 'ocr-spin 0.8s linear infinite' }} /> : <Zap size={12} />}
+            <span>{testAll.running ? t('op.testAllRunning', { done: testAll.done, n: testAll.total }) : t('op.testAllBtn')}</span>
+          </button>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '14px' }}>
           {connectedResults.map(p => (
             <div key={p.id} style={cardStyle}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <ProviderLogo id={p.id} logoUrl={p.logoUrl} size={44} />
+                <ProviderLogo id={p.id} logo={p.logo} size={44} />
                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <span style={{ fontWeight: 700, fontSize: 14, fontFamily: 'JetBrains Mono, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.id}</span>
                   {p.name && <span style={{ fontSize: 11, color: 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>}
                 </div>
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                   {p.custom && <span style={badgeStyle('var(--accent)', 'rgba(6,182,212,0.15)')}>{t('op.badgeCustom')}</span>}
-                  {p.auth.inline && <span style={badgeStyle('#f59e0b', 'rgba(245,158,11,0.12)')}>{t('op.badgeInline')}</span>}
+                  {p.auth.inline && (
+                    <span style={{ ...badgeStyle('#f59e0b', 'rgba(245,158,11,0.12)'), display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                      <Key size={9} />
+                      {t('op.badgeInline')}
+                    </span>
+                  )}
                   {p.auth.type === 'oauth' && <span style={badgeStyle('#a78bfa', 'rgba(167,139,250,0.12)')}>{t('op.badgeOauth')}</span>}
                   {p.auth.type === 'api' && !p.auth.inline && (
                     <span style={badgeStyle('var(--text-dim)', 'rgba(255,255,255,0.06)')}>{t('op.badgeAuth')}</span>
@@ -347,23 +426,6 @@ export const KeysPage: React.FC = () => {
                 </div>
               )}
 
-              <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-                {p.models.length > 0
-                  ? t('op.modelsCount', { n: p.models.length }) + ': ' + p.models.slice(0, 4).join(', ') + (p.models.length > 4 ? '…' : '')
-                  : t('op.noModels')}
-                {p.models.length > 0 && (
-                  <>
-                    {' '}
-                    <Link
-                      to={`/models?provider=${encodeURIComponent(p.id)}`}
-                      style={{ color: 'var(--accent)', textDecoration: 'none', whiteSpace: 'nowrap' }}
-                    >
-                      {t('op.viewAllModels')}
-                    </Link>
-                  </>
-                )}
-              </div>
-
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, fontFamily: 'JetBrains Mono, monospace' }}>
                 <Lock size={11} />
                 <span>{p.auth.keyMasked || '—'}</span>
@@ -373,6 +435,22 @@ export const KeysPage: React.FC = () => {
                   </span>
                 )}
               </div>
+
+              {testResults[p.id] && (
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontFamily: 'JetBrains Mono, monospace',
+                    color: testResults[p.id].ok ? 'var(--accent-emerald)' : 'var(--accent-rose)',
+                    wordBreak: 'break-all',
+                  }}
+                  title={testResults[p.id].ok ? undefined : testResults[p.id].error}
+                >
+                  {testResults[p.id].ok
+                    ? `✓ ${testResults[p.id].model} · ${testResults[p.id].latencyMs} ms`
+                    : `✗ ${testResults[p.id].error?.slice(0, 120) || t('op.testFailMsg')}`}
+                </div>
+              )}
 
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {keyEditId === p.id ? (
@@ -399,11 +477,51 @@ export const KeysPage: React.FC = () => {
                   </button>
                 )}
                 {keyEditId !== p.id && (
-                  <button className="btn btn-sm" style={{ color: 'var(--accent-rose)' }} disabled={busy} onClick={() => handleDelete(p)}>
-                    <Trash2 size={12} />
-                  </button>
+                  <>
+                    <Link
+                      className="btn btn-sm"
+                      to={`/models?provider=${encodeURIComponent(p.id)}`}
+                      title={t('op.viewAllModels')}
+                      style={{ textDecoration: 'none' }}
+                    >
+                      <Eye size={12} />
+                      <span>{t('op.viewBtn')}</span>
+                    </Link>
+                    <button
+                      className="btn btn-sm"
+                      disabled={testingIds.size > 0 || testAll.running}
+                      title={testingIds.has(p.id) ? t('op.testing') : t('op.testBtn')}
+                      onClick={() => handleTestProvider(p.id)}
+                    >
+                      {testingIds.has(p.id) ? <RefreshCw size={12} style={{ animation: 'ocr-spin 0.8s linear infinite' }} /> : <Zap size={12} />}
+                      {!testingIds.has(p.id) && <span>{t('op.testBtn')}</span>}
+                    </button>
+                    <button
+                      className="btn btn-sm"
+                      style={modelsPanelId === p.id ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : undefined}
+                      disabled={busy}
+                      title={t('op.pmManage')}
+                      onClick={() => setModelsPanelId(p.id)}
+                    >
+                      <Cpu size={12} />
+                      <span>{t('op.pmManage')}</span>
+                    </button>
+                    <button className="btn btn-sm" style={{ color: 'var(--accent-rose)' }} disabled={busy || testingIds.size > 0 || testAll.running} onClick={() => handleDelete(p)}>
+                      <Trash2 size={12} />
+                    </button>
+                  </>
                 )}
               </div>
+
+              {modelsPanelId === p.id && (
+                <ProviderModelsDialog
+                  providerId={p.id}
+                  providerName={p.name}
+                  readOnly={!p.custom}
+                  onClose={() => setModelsPanelId(null)}
+                  onChanged={loadOpenCodeProviders}
+                />
+              )}
             </div>
           ))}
           {ocProviders.length === 0 && !ocError && (
@@ -442,7 +560,7 @@ export const KeysPage: React.FC = () => {
             return (
               <div key={c.id} style={{ ...cardStyle, padding: 12, opacity: connected ? 0.55 : 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <ProviderLogo id={c.id} logoUrl={c.logoUrl} size={38} />
+                  <ProviderLogo id={c.id} logo={c.logo} size={38} />
                   <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <span style={{ fontWeight: 700, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
                     <span style={{ fontSize: 10, color: 'var(--text-dim)', fontFamily: 'JetBrains Mono, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.id}</span>
@@ -504,23 +622,22 @@ export const KeysPage: React.FC = () => {
               <button className="btn btn-sm" title={t('op.fNpm')} onClick={() => { setNpmChoice(''); setForm({ ...form, npm: '' }); }}>↩</button>
             </div>
           ) : (
-            <select
-              className="input"
-              style={{ fontSize: 12 }}
+            <Combobox
+              style={{ fontSize: 12, cursor: 'pointer' }}
               value={npmChoice}
-              onChange={e => {
-                const v = e.target.value;
+              onChange={(v) => {
                 setNpmChoice(v);
                 if (v === CUSTOM_NPM) setForm({ ...form, npm: '' });
                 else setForm({ ...form, npm: v });
               }}
-            >
-              <option value="">{t('op.fNpm')}</option>
-              {npmOptions.map(pkg => (
-                <option key={pkg} value={pkg}>{pkg}</option>
-              ))}
-              <option value={CUSTOM_NPM}>{t('op.fNpmCustom')}…</option>
-            </select>
+              placeholder={t('op.fNpm')}
+              clearable
+              options={[
+                { value: '', label: t('op.fNpm') },
+                ...npmOptions.map((pkg) => ({ value: pkg, label: pkg })),
+                { value: CUSTOM_NPM, label: `${t('op.fNpmCustom')}…` },
+              ]}
+            />
           )}
           <input className="input" style={{ fontSize: 12 }} placeholder={t('op.fKey')} value={form.apiKey} onChange={e => setForm({ ...form, apiKey: e.target.value })} />
         </div>
