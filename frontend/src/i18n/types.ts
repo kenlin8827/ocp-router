@@ -16,6 +16,7 @@ export interface TranslationDict {
     rules: string;
     cache: string;
     providers: string;
+    models: string;
     apiKeys: string;
     clients: string;
     guardrails: string;
@@ -154,6 +155,33 @@ export interface TranslationDict {
     emptyConnected: string;
     staticTitle: string;
     staticDesc: string;
+    viewAllModels: string;
+  };
+  models: {
+    title: string;
+    desc: string;
+    source: string;
+    search: string;
+    filterAll: string;
+    onlyConnected: string;
+    sortDefault: string;
+    sortPriceAsc: string;
+    sortPriceDesc: string;
+    sortContextDesc: string;
+    sortName: string;
+    thModel: string;
+    thProvider: string;
+    thContext: string;
+    thInput: string;
+    thOutput: string;
+    thCapabilities: string;
+    badgeReasoning: string;
+    badgeToolCall: string;
+    notConnected: string;
+    empty: string;
+    count: string;
+    loadMore: string;
+    refresh: string;
   };
   guardrails: {
     title: string;

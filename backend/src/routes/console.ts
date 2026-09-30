@@ -211,6 +211,32 @@ export function registerConsoleRoutes(
       return { status: 'ok', source: catalogRepository.lastSyncOrigin, providers };
     },
 
+    /** Flat model catalog across providers (supports ?provider= & ?connected=1). */
+    models: async (req: any) => {
+      const { catalogRepository } = await import('../opencode/catalog/repository.js');
+      const query = req.query as { provider?: string; connected?: string };
+      const providerFilter = query.provider?.trim().toLowerCase();
+      const connectedOnly = query.connected === '1' || query.connected === 'true';
+      const unified = await catalogRepository.list();
+      const models = unified
+        .filter(
+          (p) =>
+            (!providerFilter || p.id.toLowerCase() === providerFilter) &&
+            (!connectedOnly || p.connected)
+        )
+        .flatMap((p) =>
+          p.models.map((m) => ({
+            ...m,
+            providerId: p.id,
+            providerName: p.name,
+            logoUrl: p.logoUrl,
+            custom: p.custom,
+            connected: p.connected,
+          }))
+        );
+      return { status: 'ok', source: catalogRepository.lastSyncOrigin, total: models.length, models };
+    },
+
     create: async (req: any, reply: any) => {
       const body = req.body as any;
       if (!body?.id) {
@@ -328,6 +354,7 @@ export function registerConsoleRoutes(
   for (const prefix of ['/api/ui', '/api/console']) {
     app.get(`${prefix}/opencode/providers`, ocHandlers.list);
     app.get(`${prefix}/opencode/catalog`, ocHandlers.catalog);
+    app.get(`${prefix}/opencode/models`, ocHandlers.models);
     app.post(`${prefix}/opencode/providers`, ocHandlers.create);
     app.patch(`${prefix}/opencode/providers/:id`, ocHandlers.update);
     app.post(`${prefix}/opencode/providers/:id/connect`, ocHandlers.connect);

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { Key, Check, RefreshCw, Trash2, Plug, Plus, Lock } from 'lucide-react';
 import { opencodeApi, type OpenCodeProviderView, type OpenCodeCatalogProvider } from '../lib/api';
 import { useI18n } from '../i18n/I18nContext';
@@ -350,6 +351,17 @@ export const KeysPage: React.FC = () => {
                 {p.models.length > 0
                   ? t('op.modelsCount', { n: p.models.length }) + ': ' + p.models.slice(0, 4).join(', ') + (p.models.length > 4 ? '…' : '')
                   : t('op.noModels')}
+                {p.models.length > 0 && (
+                  <>
+                    {' '}
+                    <Link
+                      to={`/models?provider=${encodeURIComponent(p.id)}`}
+                      style={{ color: 'var(--accent)', textDecoration: 'none', whiteSpace: 'nowrap' }}
+                    >
+                      {t('op.viewAllModels')}
+                    </Link>
+                  </>
+                )}
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, fontFamily: 'JetBrains Mono, monospace' }}>

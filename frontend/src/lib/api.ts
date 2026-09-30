@@ -255,6 +255,22 @@ export interface CustomProviderPayload {
   options?: Record<string, any>;
 }
 
+export interface OpenCodeModelView {
+  providerId: string;
+  providerName?: string;
+  logoUrl?: string;
+  custom: boolean;
+  connected: boolean;
+  id: string;
+  name?: string;
+  reasoning?: boolean;
+  toolCall?: boolean;
+  contextLimit?: number;
+  outputLimit?: number;
+  pricing?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+  source: string;
+}
+
 function ocJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
     return res
@@ -279,6 +295,19 @@ export const opencodeApi = {
 
   async catalog(refresh = false): Promise<{ status: string; source: string; providers: OpenCodeCatalogProvider[] }> {
     return ocJson(await fetch(`/api/ui/opencode/catalog${refresh ? '?refresh=1' : ''}`));
+  },
+
+  async listModels(params?: { provider?: string; connected?: boolean }): Promise<{
+    status: string;
+    source: string;
+    total: number;
+    models: OpenCodeModelView[];
+  }> {
+    const qs = new URLSearchParams();
+    if (params?.provider) qs.set('provider', params.provider);
+    if (params?.connected) qs.set('connected', '1');
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return ocJson(await fetch(`/api/ui/opencode/models${suffix}`));
   },
 
   async createProvider(payload: CustomProviderPayload): Promise<{ status: string; success: boolean }> {

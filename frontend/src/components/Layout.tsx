@@ -17,6 +17,7 @@ import {
   RotateCcw,
   Globe,
   Plug,
+  Cpu,
   type LucideIcon,
 } from 'lucide-react';
 import { api, type GatewayStatusResponse } from '../lib/api';
@@ -60,6 +61,7 @@ const NAV_GROUP_DEFS: NavGroupDef[] = [
     headingKey: 'nav.grpUpstream',
     items: [
       { to: '/providers', labelKey: 'nav.providers', icon: Plug },
+      { to: '/models', labelKey: 'nav.models', icon: Cpu },
     ],
   },
   {
@@ -101,6 +103,7 @@ const ROUTE_META_KEYS: Record<string, { groupKey: string; titleKey: string }> = 
   '/cache': { groupKey: 'nav.grpTraffic', titleKey: 'nav.cache' },
   '/api-keys': { groupKey: 'nav.grpAccess', titleKey: 'nav.apiKeys' },
   '/providers': { groupKey: 'nav.grpUpstream', titleKey: 'nav.providers' },
+  '/models': { groupKey: 'nav.grpUpstream', titleKey: 'nav.models' },
   '/clients': { groupKey: 'nav.grpAccess', titleKey: 'nav.clients' },
   '/guardrails': { groupKey: 'nav.grpSafety', titleKey: 'nav.guardrails' },
   '/usage': { groupKey: 'nav.grpObservability', titleKey: 'nav.usage' },

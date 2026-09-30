@@ -4,6 +4,7 @@ import { Layout } from './components/Layout';
 import { OverviewPage } from './pages/OverviewPage';
 import { ChainsPage } from './pages/ChainsPage';
 import { KeysPage } from './pages/KeysPage';
+import { ModelsPage } from './pages/ModelsPage';
 import { ApiKeysPage } from './pages/ApiKeysPage';
 import { GuardrailsPage } from './pages/GuardrailsPage';
 import { UsagePage } from './pages/UsagePage';
@@ -25,6 +26,7 @@ export const App: React.FC = () => {
         <Route path="cache" element={<ChainsPage />} />
         <Route path="api-keys" element={<ApiKeysPage />} />
         <Route path="providers" element={<KeysPage />} />
+        <Route path="models" element={<ModelsPage />} />
         <Route path="clients" element={<ClientsPage />} />
         <Route path="guardrails" element={<GuardrailsPage />} />
         <Route path="usage" element={<UsagePage />} />
