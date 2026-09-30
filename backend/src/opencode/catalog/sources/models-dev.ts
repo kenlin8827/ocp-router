@@ -1,0 +1,101 @@
+import { writeCacheFile, readCacheFile } from '../cache.js';
+import type { CatalogModel, CatalogProviderRecord, CatalogSourceState } from '../types.js';
+
+/**
+ * models.dev source — the same catalog OpenCode uses for `opencode auth login`.
+ * Pricing arrives already in USD/1M tokens. Logos are static assets keyed by provider id.
+ */
+
+const MODELS_DEV_URL = 'https://models.dev/api.json';
+const CACHE_NAME = 'catalog-models-dev';
+
+export function modelsDevLogoUrl(providerId: string): string {
+  return `https://models.dev/logos/${providerId}.svg`;
+}
+
+/** Pure normalizer (unit-tested without network). */
+export function normalizeModelsDev(raw: Record<string, any>): CatalogProviderRecord[] {
+  const list: CatalogProviderRecord[] = [];
+
+  for (const [id, entry] of Object.entries(raw)) {
+    if (!entry || typeof entry !== 'object') continue;
+
+    const models: CatalogModel[] = [];
+    if (entry.models && typeof entry.models === 'object') {
+      for (const [mid, m] of Object.entries<any>(entry.models)) {
+        if (!m || typeof m !== 'object') continue;
+        const cost = m.cost && typeof m.cost === 'object' ? m.cost : undefined;
+        models.push({
+          id: mid,
+          name: m.name || undefined,
+          reasoning: m.reasoning === true || undefined,
+          toolCall: m.tool_call === true || undefined,
+          contextLimit: m.limit?.context,
+          outputLimit: m.limit?.output,
+          pricing: cost
+            ? {
+                input: cost.input,
+                output: cost.output,
+                cacheRead: cost.cache_read,
+                cacheWrite: cost.cache_write,
+              }
+            : undefined,
+          source: 'models-dev',
+        });
+      }
+    }
+
+    list.push({
+      id,
+      name: entry.name || id,
+      logoUrl: modelsDevLogoUrl(id),
+      npm: entry.npm || undefined,
+      api: entry.api || undefined,
+      doc: entry.doc || undefined,
+      env: Array.isArray(entry.env) ? entry.env : undefined,
+      custom: false,
+      connected: false,
+      sources: ['models-dev'],
+      models,
+    });
+  }
+
+  list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  return list;
+}
+
+/**
+ * Sync models.dev: network → 24h cache → stale-on-error.
+ * Returns the payload plus where it came from.
+ */
+export async function syncModelsDev(
+  force = false,
+  opts: { url?: string; cacheName?: string } = {}
+): Promise<{ origin: 'network' | 'cache' | 'stale' | 'none'; providers: CatalogProviderRecord[] }> {
+  const url = opts.url || MODELS_DEV_URL;
+  const cacheName = opts.cacheName || CACHE_NAME;
+  const cached = readCacheFile<CatalogProviderRecord[]>(cacheName);
+  const fresh = cached && Date.now() - cached.fetchedAt < 24 * 3600 * 1000;
+
+  if (!force && fresh && cached) {
+    return { origin: 'cache', providers: cached.data };
+  }
+
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(10000),
+      headers: { 'User-Agent': 'OpenCode-Router/1.0' },
+    });
+    if (!res.ok) throw new Error(`models.dev HTTP ${res.status}`);
+    const providers = normalizeModelsDev((await res.json()) as Record<string, any>);
+    if (providers.length > 0) writeCacheFile(cacheName, providers);
+    return { origin: providers.length > 0 ? 'network' : 'none', providers };
+  } catch {
+    if (cached) return { origin: 'stale', providers: cached.data };
+    return { origin: 'none', providers: [] };
+  }
+}
+
+export function readModelsDevCache(cacheName: string = CACHE_NAME): CatalogSourceState<CatalogProviderRecord[]> | null {
+  return readCacheFile<CatalogProviderRecord[]>(cacheName);
+}

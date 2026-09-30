@@ -122,6 +122,7 @@ export function loadConfig(configPath?: string): RouterConfig {
         },
         providers: parsed?.providers || DEFAULT_CONFIG.providers,
         models: parsed?.models || DEFAULT_CONFIG.models,
+        catalog: parsed?.catalog,
       };
     } catch (err) {
       console.warn(`[Config] Failed to parse ${resolvedPath}, falling back to defaults:`, err);

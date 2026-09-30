@@ -24,7 +24,10 @@ describe('CLI Client Setup & Teardown Adapters', () => {
 
   it('OpenCode adapter should safely setup and teardown with backup restoration', async () => {
     const configPath = path.join(tmpDir, 'opencode.json');
-    fs.writeFileSync(configPath, JSON.stringify({ defaultProvider: 'anthropic', providers: { anthropic: { type: 'anthropic' } } }, null, 2));
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({ $schema: 'https://opencode.ai/config.json', provider: {}, model: 'anthropic/claude-sonnet-4' }, null, 2)
+    );
 
     const adapter = new OpenCodeClientAdapter();
     adapter.getConfigPath = () => configPath;
@@ -43,8 +46,9 @@ describe('CLI Client Setup & Teardown Adapters', () => {
     expect(status.hooked).toBe(true);
 
     const updated = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    expect(updated.providers.ocr.baseUrl).toBe('http://127.0.0.1:4000/v1');
-    expect(updated.defaultProvider).toBe('ocr');
+    // Correct OpenCode v2 schema: singular `provider` node + top-level `model`
+    expect(updated.provider['opencode-router'].options.baseURL).toBe('http://127.0.0.1:4000/v1');
+    expect(updated.model).toBe('opencode-router/auto');
 
     // Teardown
     const teardownRes = await adapter.teardown();
@@ -54,8 +58,40 @@ describe('CLI Client Setup & Teardown Adapters', () => {
     expect(status.hooked).toBe(false);
 
     const restored = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    expect(restored.defaultProvider).toBe('anthropic');
-    expect(restored.providers.ocr).toBeUndefined();
+    expect(restored.model).toBe('anthropic/claude-sonnet-4');
+    expect(restored.provider['opencode-router']).toBeUndefined();
+  });
+
+  it('OpenCode adapter must preserve JSONC comments on setup', async () => {
+    const configPath = path.join(tmpDir, 'opencode.jsonc');
+    fs.writeFileSync(
+      configPath,
+      [
+        '{',
+        '  // My personal OpenCode settings — do not reformat!',
+        '  "model": "zhipuai-coding-plan/glm-5.3-flash",',
+        '  "provider": {',
+        '    // self-hosted gateway',
+        '    "home-lab": { "npm": "@ai-sdk/openai-compatible", "options": { "baseURL": "http://192.168.1.10/v1" } }',
+        '  }',
+        '}',
+      ].join('\n'),
+      'utf8'
+    );
+
+    const adapter = new OpenCodeClientAdapter();
+    adapter.getConfigPath = () => configPath;
+
+    const setupRes = await adapter.setup({ port: 4000 });
+    expect(setupRes.success).toBe(true);
+
+    const raw = fs.readFileSync(configPath, 'utf8');
+    expect(raw).toContain('// My personal OpenCode settings');
+    expect(raw).toContain('// self-hosted gateway');
+
+    const parsed = JSON.parse(raw.replace(/^\s*\/\/.*$/gm, ''));
+    expect(parsed.provider['home-lab'].options.baseURL).toBe('http://192.168.1.10/v1');
+    expect(parsed.provider['opencode-router'].options.baseURL).toBe('http://127.0.0.1:4000/v1');
   });
 
   it('Claude adapter should safely inject ANTHROPIC_BASE_URL and restore', async () => {
@@ -146,9 +182,13 @@ describe('Embedded UI & Management API Endpoints', () => {
     expect(resChains.statusCode).toBe(200);
     expect(resChains.headers['content-type']).toContain('text/html');
 
-    const resKeys = await app.inject({ method: 'GET', url: '/keys' });
+    const resKeys = await app.inject({ method: 'GET', url: '/providers' });
     expect(resKeys.statusCode).toBe(200);
     expect(resKeys.headers['content-type']).toContain('text/html');
+
+    // legacy alias still serves the SPA
+    const resKeysAlias = await app.inject({ method: 'GET', url: '/keys' });
+    expect(resKeysAlias.statusCode).toBe(200);
   });
 
   it('should return aggregated status on GET /api/ui/status', async () => {
@@ -187,9 +227,6 @@ describe('Embedded UI & Management API Endpoints', () => {
       url: '/api/ui/providers/test',
       payload: { baseUrl: 'https://api.openai.com/v1', apiKey: 'sk-invalid-test-key' },
     });
-    expect(res.statusCode).toBe(200);
-    const json = JSON.parse(res.body);
-    expect(typeof json.ok).toBe('boolean');
-    expect(typeof json.latencyMs).toBe('number');
+    expect(res.statusCode).toBe(404);
   });
 });

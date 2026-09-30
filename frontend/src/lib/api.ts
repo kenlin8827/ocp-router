@@ -126,25 +126,6 @@ export const api = {
     return res.json();
   },
 
-  async testProviderPing(baseUrl: string, apiKey: string): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
-    const res = await fetch('/api/ui/providers/test', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ baseUrl, apiKey }),
-    });
-    return res.json();
-  },
-
-  async saveProviderKeys(keys: Record<string, { apiKey: string; baseUrl?: string }>): Promise<{ status: string; message: string }> {
-    const res = await fetch('/api/ui/providers/keys', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keys }),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
-  },
-
   async toggleClient(client: string, action: 'setup' | 'teardown'): Promise<{ status: string; message: string }> {
     const res = await fetch(`/api/ui/client/${client}/${action}`, { method: 'POST' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -222,3 +203,119 @@ export interface ApiKeyItem {
   expiresAt?: string;
   description?: string;
 }
+
+// ---------------------------------------------------------------------------
+// OpenCode-native provider management (opencode.jsonc `provider` + auth.json)
+// ---------------------------------------------------------------------------
+
+export interface OpenCodeProviderView {
+  id: string;
+  name?: string;
+  npm?: string;
+  baseURL?: string;
+  models: string[];
+  custom: boolean;
+  logoUrl?: string;
+  priceFrom?: number;
+  modelsCount?: number;
+  auth: {
+    connected: boolean;
+    type?: 'api' | 'oauth' | 'wellknown';
+    keyMasked?: string;
+    expires?: number;
+    inline?: boolean;
+  };
+}
+
+export interface OpenCodeCatalogProvider {
+  id: string;
+  name: string;
+  logoUrl?: string;
+  npm?: string;
+  api?: string;
+  baseURL?: string;
+  doc?: string;
+  env?: string[];
+  custom: boolean;
+  connected: boolean;
+  sources: string[];
+  modelCount: number;
+  priceFrom?: number;
+}
+
+export interface CustomProviderPayload {
+  id: string;
+  name?: string;
+  npm?: string;
+  baseURL?: string;
+  apiKey?: string;
+  apiKeyInline?: boolean;
+  headers?: Record<string, string>;
+  models?: Record<string, any>;
+  options?: Record<string, any>;
+}
+
+function ocJson<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    return res
+      .json()
+      .catch(() => ({}))
+      .then((e: any) => {
+        throw new Error(e?.error || e?.message || `HTTP ${res.status}`);
+      }) as Promise<T>;
+  }
+  return res.json();
+}
+
+export const opencodeApi = {
+  async listProviders(): Promise<{
+    status: string;
+    configPath: string;
+    authPath: string;
+    providers: OpenCodeProviderView[];
+  }> {
+    return ocJson(await fetch('/api/ui/opencode/providers'));
+  },
+
+  async catalog(refresh = false): Promise<{ status: string; source: string; providers: OpenCodeCatalogProvider[] }> {
+    return ocJson(await fetch(`/api/ui/opencode/catalog${refresh ? '?refresh=1' : ''}`));
+  },
+
+  async createProvider(payload: CustomProviderPayload): Promise<{ status: string; success: boolean }> {
+    return ocJson(
+      await fetch('/api/ui/opencode/providers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+    );
+  },
+
+  async updateProvider(id: string, payload: Partial<CustomProviderPayload>): Promise<{ status: string; success: boolean }> {
+    return ocJson(
+      await fetch(`/api/ui/opencode/providers/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+    );
+  },
+
+  async connectProvider(id: string, apiKey: string, baseURL?: string): Promise<{ status: string; success: boolean; message?: string }> {
+    return ocJson(
+      await fetch(`/api/ui/opencode/providers/${encodeURIComponent(id)}/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey, baseURL }),
+      })
+    );
+  },
+
+  async deleteProvider(id: string, purgeAuth = false): Promise<{ status: string; success: boolean; message?: string }> {
+    return ocJson(
+      await fetch(`/api/ui/opencode/providers/${encodeURIComponent(id)}${purgeAuth ? '?purgeAuth=1' : ''}`, {
+        method: 'DELETE',
+      })
+    );
+  },
+};

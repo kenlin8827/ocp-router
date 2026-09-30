@@ -20,7 +20,7 @@ export const App: React.FC = () => {
         <Route path="rules" element={<ChainsPage />} />
         <Route path="cache" element={<ChainsPage />} />
         <Route path="api-keys" element={<ApiKeysPage />} />
-        <Route path="keys" element={<KeysPage />} />
+        <Route path="providers" element={<KeysPage />} />
         <Route path="clients" element={<ClientsPage />} />
         <Route path="guardrails" element={<GuardrailsPage />} />
         <Route path="usage" element={<UsagePage />} />

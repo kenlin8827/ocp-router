@@ -97,12 +97,38 @@ export interface ApiKeyConfig {
   description?: string;
 }
 
+/**
+ * Catalog source registry — remote sources are fully config-declared.
+ * `type` maps to a normalizer registered in opencode/catalog/sources/registry.ts;
+ * adding a new source of a KNOWN type is pure configuration (no code).
+ * `priority`: lower number = higher precedence when merging (config=10, service=20;
+ * remote sources should use >=30).
+ */
+export interface CatalogSourceConfig {
+  id: string;
+  type: 'provider-catalog' | 'model-list' | 'openai-compatible';
+  url: string;
+  enabled?: boolean;
+  priority?: number;
+}
+
+export interface CatalogConfig {
+  syncIntervalMs?: number;
+  sources?: CatalogSourceConfig[];
+}
+
+export const DEFAULT_CATALOG_SOURCES: CatalogSourceConfig[] = [
+  { id: 'openrouter', type: 'model-list', url: 'https://openrouter.ai/api/v1/models', enabled: true, priority: 30 },
+  { id: 'models-dev', type: 'provider-catalog', url: 'https://models.dev/api.json', enabled: true, priority: 40 },
+];
+
 export interface RouterConfig {
   port: number;
   host: string;
   adminApiKey?: string;
   apiKeys?: ApiKeyConfig[];
   opencode?: OpenCodeConfig;
+  catalog?: CatalogConfig;
   rules?: CustomRule[];
   fallback: FallbackConfig;
   budget: BudgetConfig;

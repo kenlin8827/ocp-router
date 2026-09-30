@@ -7,10 +7,20 @@ import { FinOpsTracker } from './metrics/finops-tracker.js';
 import { PipelineOrchestrator } from './pipeline/orchestrator.js';
 
 import { Layer1Classifier } from './router/layer1-classifier.js';
+import { catalogRepository } from './opencode/catalog/repository.js';
 
 async function main() {
   const config = loadConfig();
-  
+
+  // -1. Provider/model catalog sync (config-driven sources; defaults when unset)
+  try {
+    catalogRepository.applyConfig(config.catalog);
+    await catalogRepository.start();
+    console.log(`[OCR] Catalog synced: ${catalogRepository.lastSyncOrigin}`);
+  } catch (err: any) {
+    console.warn(`[OCR] Catalog sync failed (will retry on interval): ${err.message}`);
+  }
+
   // 0. Auto-initialize Layer 1 model base scaffold
   await Layer1Classifier.init(config.classifier?.localModel);
   console.log(`[OCR] Layer 1 classifier ready: ${Layer1Classifier.getModelStatus()}`);

@@ -69,6 +69,7 @@ export function createServer(
       rawUrl === '/chains' ||
       rawUrl === '/rules' ||
       rawUrl === '/cache' ||
+      rawUrl === '/providers' ||
       rawUrl === '/keys' ||
       rawUrl === '/api-keys' ||
       rawUrl === '/clients' ||

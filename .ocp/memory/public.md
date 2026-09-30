@@ -1,0 +1,4 @@
+# Project memory — public lessons (committed)
+
+- [2026-09-30] This repo is bun-first: all scripts (build/dev/test) use `bun --filter`; pnpm ignores the root `workspaces` field (no pnpm-workspace.yaml), so `pnpm install` silently skips backend/frontend deps and `pnpm build` fails with TS2307 "Cannot find module 'fastify'/'yaml'/'dotenv'". Use `bun install && bun run build`.
+- [2026-09-30] OpenCode user config is two files: provider definitions in ~/.config/opencode/opencode.jsonc under the SINGULAR `provider` node (JSONC — every write must use jsonc-parser text-level modify/applyEdits to preserve comments; plain JSON.parse/stringify destroys a ~2000-line commented file), and credentials in ~/.local/share/opencode/auth.json ({ "<providerID>": { type: 'api', key } | oauth }). All provider CRUD goes through backend/src/opencode/user-config.ts.

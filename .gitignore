@@ -5,3 +5,7 @@ dist/
 config.yaml
 data/*.jsonl
 !data/.gitkeep
+
+# runtime artifacts
+backend/data/
+backend/models/

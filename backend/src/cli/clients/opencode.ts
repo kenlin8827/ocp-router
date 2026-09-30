@@ -1,32 +1,79 @@
-import path from 'node:path';
-import os from 'node:os';
 import fs from 'node:fs';
 import {
   ClientAdapter,
   createBackup,
   restoreBackup,
   safeReadJson,
-  safeWriteJson,
   OCR_DEFAULT_PORT,
-  OCR_DEFAULT_V1_URL,
-  OCR_WATERMARK,
 } from './base.js';
 import { ClientHookStatus } from '../types.js';
+import {
+  ROUTER_PROVIDER_ID,
+  getOpenCodeConfigPath,
+  patchJsonc,
+  readJsonc,
+} from '../../opencode/user-config.js';
+
+/**
+ * OpenCode client adapter.
+ *
+ * OpenCode v2 config schema notes:
+ *  - Custom/static providers live under the *singular* `provider` node
+ *    (NOT `providers`), each entry being an AI SDK provider package binding:
+ *      "provider": { "<id>": { "npm": "@ai-sdk/openai-compatible", "options": { "baseURL": ... }, "models": {...} } }
+ *  - The file is JSONC (comments allowed) — every write must be a
+ *    comment-preserving text-level edit (see opencode/user-config.ts).
+ *  - The default model is selected via the top-level `model` key ("provider/model-id").
+ */
+
+/** Sidecar that remembers the user's previous default model across setup/teardown. */
+function metaPathFor(configPath: string): string {
+  return `${configPath}.ocr-meta.json`;
+}
+
+function readMeta(configPath: string): { previousModel?: string } {
+  try {
+    const p = metaPathFor(configPath);
+    if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf8'));
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+function writeMeta(configPath: string, meta: { previousModel?: string }): void {
+  try {
+    fs.writeFileSync(metaPathFor(configPath), JSON.stringify(meta, null, 2), 'utf8');
+  } catch {
+    // best effort
+  }
+}
+
+function buildRouterProviderNode(port: number): any {
+  const targetUrl = `http://127.0.0.1:${port}/v1`;
+  const modelEntry = (label: string) => ({ name: label });
+  return {
+    npm: '@ai-sdk/openai-compatible',
+    name: 'OpenCode Router',
+    options: {
+      baseURL: targetUrl,
+      apiKey: 'ocr-local-token',
+    },
+    models: {
+      auto: modelEntry('Auto (intelligent multi-tier routing)'),
+      'auto-fast': modelEntry('Force Fast tier'),
+      'auto-flagship': modelEntry('Force Flagship tier'),
+      'auto-reasoning': modelEntry('Force Reasoning tier'),
+    },
+  };
+}
 
 export class OpenCodeClientAdapter implements ClientAdapter {
   name = 'opencode' as const;
   displayName = 'OpenCode';
 
   getConfigPath(): string {
-    const home = os.homedir();
-    const candidateJsonc = path.join(home, '.config', 'opencode', 'opencode.jsonc');
-    const candidateJson = path.join(home, '.config', 'opencode', 'opencode.json');
-    const candidateAlt = path.join(home, '.opencode', 'opencode.json');
-
-    if (fs.existsSync(candidateJsonc)) return candidateJsonc;
-    if (fs.existsSync(candidateJson)) return candidateJson;
-    if (fs.existsSync(candidateAlt)) return candidateAlt;
-    return candidateJson;
+    return getOpenCodeConfigPath();
   }
 
   getStatus(): ClientHookStatus {
@@ -37,11 +84,17 @@ export class OpenCodeClientAdapter implements ClientAdapter {
     let details = 'Not configured';
 
     if (exists) {
-      const data = safeReadJson(configPath);
+      // Tolerant JSONC read (comments-safe); fall back to legacy plain-JSON reader.
+      const data = readJsonc(configPath) ?? safeReadJson(configPath);
       if (data) {
-        if (data.providers?.ocr || data.providers?.['opencode-router'] || data.provider?.baseUrl?.includes('/v1')) {
+        const routerEntry = data.provider?.[ROUTER_PROVIDER_ID];
+        if (routerEntry?.options?.baseURL) {
           hooked = true;
-          details = 'Routed to OpenCode Router gateway';
+          details = `Routed to OpenCode Router gateway (${routerEntry.options.baseURL})`;
+        } else if (data.providers?.ocr || data.providers?.['opencode-router']) {
+          // Legacy (invalid-schema) leftovers from previous adapter versions
+          hooked = true;
+          details = 'Legacy hook detected (invalid schema) — re-run setup to fix';
         } else {
           details = 'Active with native providers';
         }
@@ -66,40 +119,27 @@ export class OpenCodeClientAdapter implements ClientAdapter {
   async setup(options?: { port?: number }): Promise<{ success: boolean; message: string }> {
     const configPath = this.getConfigPath();
     const port = options?.port || OCR_DEFAULT_PORT;
-    const targetUrl = `http://127.0.0.1:${port}/v1`;
 
-    let data = safeReadJson(configPath) || {};
-
-    // 1. Create safety backup
+    // 1. Safety backup (single rolling .bak.ocr, restorable via teardown)
     if (fs.existsSync(configPath)) {
       createBackup(configPath);
     }
 
-    // 2. Inject OCR provider
-    if (!data.providers || typeof data.providers !== 'object') {
-      data.providers = {};
+    // 2. Inject the router provider under the correct singular `provider` node
+    //    using a comment-preserving JSONC edit.
+    patchJsonc(configPath, ['provider', ROUTER_PROVIDER_ID], buildRouterProviderNode(port));
+
+    // 3. Point the default model at the router (record previous for teardown)
+    const current = readJsonc(configPath) || {};
+    const previousModel = current?.model;
+    if (previousModel && previousModel !== `${ROUTER_PROVIDER_ID}/auto`) {
+      writeMeta(configPath, { previousModel });
     }
-
-    data.providers.ocr = {
-      type: 'openai',
-      baseUrl: targetUrl,
-      apiKey: 'ocr-local-token',
-      models: ['auto', 'auto-fast', 'auto-flagship', 'auto-reasoning'],
-      [OCR_WATERMARK]: true,
-    };
-
-    // Keep previous default provider if wanted, or set ocr
-    if (!data._ocr_previous_default) {
-      data._ocr_previous_default = data.defaultProvider || null;
-    }
-    data.defaultProvider = 'ocr';
-    data[OCR_WATERMARK] = true;
-
-    safeWriteJson(configPath, data);
+    patchJsonc(configPath, ['model'], `${ROUTER_PROVIDER_ID}/auto`);
 
     return {
       success: true,
-      message: `OpenCode connected to OCR gateway (${targetUrl}). Backup created at ${configPath}.bak.ocr`,
+      message: `OpenCode routed to OCR gateway (http://127.0.0.1:${port}/v1). Backup at ${configPath}.bak.ocr`,
     };
   }
 
@@ -110,38 +150,50 @@ export class OpenCodeClientAdapter implements ClientAdapter {
       return { success: false, message: `Configuration file not found at ${configPath}` };
     }
 
-    // If backup exists, restore it directly
+    // If backup exists, restore it directly (full revert, comments included)
     if (restoreBackup(configPath)) {
       return {
         success: true,
-        message: `OpenCode restored from backup (${configPath}.bak.ocr)`,
+        message: `OpenCode configuration restored from backup (${configPath}.bak.ocr)`,
       };
     }
 
-    // Otherwise cleanly remove OCR entry
-    const data = safeReadJson(configPath);
+    // Otherwise surgically remove our provider node + default-model override
+    const data = readJsonc(configPath);
     if (!data) {
       return { success: false, message: `Could not parse OpenCode config at ${configPath}` };
     }
 
-    if (data.providers?.ocr) {
-      delete data.providers.ocr;
-    }
-    if (data[OCR_WATERMARK]) {
-      delete data[OCR_WATERMARK];
-    }
-    if (data._ocr_previous_default) {
-      data.defaultProvider = data._ocr_previous_default;
-      delete data._ocr_previous_default;
-    } else if (data.defaultProvider === 'ocr') {
-      delete data.defaultProvider;
+    if (data.provider?.[ROUTER_PROVIDER_ID]) {
+      patchJsonc(configPath, ['provider', ROUTER_PROVIDER_ID], undefined);
     }
 
-    safeWriteJson(configPath, data);
+    if (data.model === `${ROUTER_PROVIDER_ID}/auto`) {
+      const { previousModel } = readMeta(configPath);
+      if (previousModel) {
+        patchJsonc(configPath, ['model'], previousModel);
+      } else {
+        patchJsonc(configPath, ['model'], undefined);
+      }
+    }
+
+    // Clean legacy invalid-schema leftovers (providers.ocr etc.)
+    const legacy = safeReadJson(configPath);
+    if (legacy?.providers?.ocr || legacy?.[ 'opencode-router-managed' ]) {
+      const cleaned = { ...legacy };
+      delete cleaned.providers?.ocr;
+      delete cleaned[ 'opencode-router-managed' ];
+      if (cleaned._ocr_previous_default !== undefined) {
+        if (cleaned._ocr_previous_default) cleaned.defaultProvider = cleaned._ocr_previous_default;
+        delete cleaned._ocr_previous_default;
+      }
+      if (cleaned.defaultProvider === 'ocr') delete cleaned.defaultProvider;
+      fs.writeFileSync(configPath, JSON.stringify(cleaned, null, 2) + '\n', 'utf8');
+    }
 
     return {
       success: true,
-      message: `OpenCode configuration reverted successfully. OCR gateway decoupled.`,
+      message: 'OpenCode configuration reverted successfully. OCR gateway decoupled.',
     };
   }
 }

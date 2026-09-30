@@ -67,7 +67,8 @@ export function registerConsoleRoutes(
     '/chains',
     '/rules',
     '/cache',
-    '/keys',
+    '/providers',
+    '/keys', // legacy alias for /providers
     '/api-keys',
     '/clients',
     '/guardrails',
@@ -159,102 +160,180 @@ export function registerConsoleRoutes(
   app.post('/api/ui/config/raw', handleSaveRawYaml);
   app.post('/api/console/config/raw', handleSaveRawYaml);
 
-  // 7. Provider Key Connectivity Test (Ping Probe)
-  const handleTestProbe = async (req: any) => {
-    const body = req.body as { baseUrl: string; apiKey?: string; type?: string };
-    const baseUrl = body.baseUrl?.replace(/\/+$/, '') || 'https://api.openai.com/v1';
-    const apiKey = body.apiKey || '';
-    const type = body.type || 'openai';
-
-    const startTime = Date.now();
-    try {
-      const headers: Record<string, string> = {
-        'User-Agent': 'OpenCode-Router-Probe/1.0',
+  // 7. OpenCode-native Provider Management (opencode.jsonc `provider` node + auth.json)
+  //     - Definitions live in ~/.config/opencode/opencode.jsonc (JSONC, comment-preserving edits)
+  //     - Credentials live in ~/.local/share/opencode/auth.json
+  //     - Connectable catalog comes from models.dev (same source as `opencode auth login`)
+  const ocHandlers = {
+    list: async () => {
+      const { listOpenCodeProviders, getOpenCodeConfigPath, getOpenCodeAuthPath } = await import(
+        '../opencode/user-config.js'
+      );
+      const { catalogRepository } = await import('../opencode/catalog/repository.js');
+      const unified = await catalogRepository.list();
+      const byId = new Map(unified.map((p) => [p.id, p]));
+      return {
+        status: 'ok',
+        configPath: getOpenCodeConfigPath(),
+        authPath: getOpenCodeAuthPath(),
+        catalogSync: catalogRepository.lastSyncOrigin,
+        providers: listOpenCodeProviders().map((v) => {
+          const u = byId.get(v.id);
+          return {
+            ...v,
+            logoUrl: u?.logoUrl,
+            priceFrom: u ? catalogRepository.minInputPrice(u) : undefined,
+            modelsCount: u?.models.length ?? v.models.length,
+          };
+        }),
       };
+    },
 
-      let targetUrl = `${baseUrl}/models`;
-      if (type === 'anthropic') {
-        targetUrl = `${baseUrl}/v1/models`;
-        headers['x-api-key'] = apiKey;
-        headers['anthropic-version'] = '2023-06-01';
-      } else {
-        if (!targetUrl.includes('/v1') && !targetUrl.includes('/models')) {
-          targetUrl = `${baseUrl}/v1/models`;
-        }
-        if (apiKey) {
-          headers['Authorization'] = `Bearer ${apiKey}`;
-        }
+    catalog: async () => {
+      const { catalogRepository } = await import('../opencode/catalog/repository.js');
+      const unified = await catalogRepository.list();
+      // Trim model arrays from the list payload (detail endpoint can serve them later)
+      const providers = unified.map((p) => ({
+        id: p.id,
+        name: p.name,
+        logoUrl: p.logoUrl,
+        npm: p.npm,
+        api: p.api,
+        baseURL: p.baseURL,
+        doc: p.doc,
+        env: p.env,
+        custom: p.custom,
+        connected: p.connected,
+        sources: p.sources,
+        modelCount: p.models.length,
+        priceFrom: catalogRepository.minInputPrice(p),
+      }));
+      return { status: 'ok', source: catalogRepository.lastSyncOrigin, providers };
+    },
+
+    create: async (req: any, reply: any) => {
+      const body = req.body as any;
+      if (!body?.id) {
+        return reply.status(400).send({ success: false, error: 'Provider id is required' });
       }
-
-      const res = await fetch(targetUrl, {
-        method: 'GET',
-        headers,
-        signal: AbortSignal.timeout(5000),
+      const { upsertCustomProvider } = await import('../opencode/user-config.js');
+      const result = upsertCustomProvider({
+        id: String(body.id),
+        name: body.name,
+        npm: body.npm,
+        baseURL: body.baseURL,
+        apiKey: body.apiKey,
+        apiKeyInline: Boolean(body.apiKeyInline),
+        headers: body.headers,
+        models: body.models,
+        options: body.options,
       });
+      if (!result.success) return reply.status(400).send(result);
+      return { status: 'ok', ...result };
+    },
 
-      const latencyMs = Date.now() - startTime;
-      if (res.ok) {
-        return { ok: true, status: res.status, latencyMs, message: `Connection successful (${latencyMs}ms)` };
-      } else if (res.status === 401 || res.status === 403) {
-        return { ok: false, status: res.status, latencyMs, message: `Authentication failed (${res.status})` };
-      } else {
-        return { ok: false, status: res.status, latencyMs, message: `Upstream HTTP ${res.status}` };
+    update: async (req: any, reply: any) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as any;
+      const { upsertCustomProvider, getProviderNodeById } = await import('../opencode/user-config.js');
+      const existing = getProviderNodeById(id);
+      if (!existing) {
+        return reply.status(404).send({ success: false, error: `Provider '${id}' not found in opencode.jsonc` });
       }
-    } catch (err: any) {
-      const latencyMs = Date.now() - startTime;
-      return { ok: false, latencyMs, message: `Network error or timeout: ${err.message}` };
-    }
-  };
-  app.post('/api/ui/providers/test', handleTestProbe);
-  app.post('/api/console/providers/test', handleTestProbe);
+      const result = upsertCustomProvider({
+        id,
+        name: body.name ?? existing.name,
+        npm: body.npm ?? existing.npm,
+        baseURL: body.baseURL ?? existing.options?.baseURL,
+        apiKey: body.apiKey,
+        apiKeyInline: body.apiKeyInline ?? Boolean(existing.options?.apiKey),
+        headers: body.headers ?? existing.options?.headers,
+        models: body.models ?? existing.models,
+        options: existing.options,
+      });
+      if (!result.success) return reply.status(400).send(result);
+      return { status: 'ok', ...result };
+    },
 
-  // 8. Save or Update Provider API Key
-  const handleSaveKeys = async (req: any, reply: any) => {
-    const body = req.body as { name?: string; keys?: Record<string, { apiKey: string; baseUrl?: string }>; apiKey?: string; baseUrl?: string };
-    const currentConfig = loadConfig();
-    const providers = currentConfig.providers || [];
-
-    if (body.keys && typeof body.keys === 'object') {
-      for (const [providerName, info] of Object.entries(body.keys)) {
-        const idx = providers.findIndex((p) => p.name.toLowerCase() === providerName.toLowerCase());
-        if (idx !== -1) {
-          if (info.apiKey) providers[idx].apiKey = info.apiKey;
-          if (info.baseUrl) providers[idx].baseUrl = info.baseUrl;
-        } else if (info.apiKey) {
-          providers.push({
-            name: providerName,
-            type: 'openai-compatible',
-            baseUrl: info.baseUrl || 'https://api.openai.com/v1',
-            apiKey: info.apiKey,
+    connect: async (req: any, reply: any) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as { apiKey?: string; baseURL?: string };
+      const { setAuthApiKey, upsertCustomProvider, getProviderNodeById } = await import('../opencode/user-config.js');
+      try {
+        if (!body?.apiKey) {
+          return reply.status(400).send({
+            success: false,
+            oauthHint: true,
+            error: `API key required. For OAuth-based providers run: opencode auth login ${id}`,
           });
         }
+        setAuthApiKey(id, body.apiKey);
+        // Optional baseURL override — merge with the existing definition so we
+        // never wipe name/npm/models of a config-defined custom provider.
+        if (body.baseURL) {
+          const existing = getProviderNodeById(id);
+          upsertCustomProvider({
+            id,
+            baseURL: body.baseURL,
+            name: existing?.name,
+            npm: existing?.npm,
+            headers: existing?.options?.headers,
+            models: existing?.models,
+            options: existing?.options,
+          });
+        }
+        return { status: 'ok', success: true, message: `Provider '${id}' connected via auth.json` };
+      } catch (err: any) {
+        return reply.status(400).send({ success: false, error: err.message });
       }
-      currentConfig.providers = providers;
-      return saveConfig(currentConfig);
-    }
+    },
 
-    if (!body.name) {
-      return reply.status(400).send({ success: false, message: 'Provider name or keys dictionary is required' });
-    }
+    setKey: async (req: any, reply: any) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as { apiKey?: string };
+      const { setAuthApiKey } = await import('../opencode/user-config.js');
+      if (!body?.apiKey) {
+        return reply.status(400).send({ success: false, error: 'apiKey is required' });
+      }
+      try {
+        setAuthApiKey(id, body.apiKey);
+        return { status: 'ok', success: true, message: `Credential updated for '${id}'` };
+      } catch (err: any) {
+        return reply.status(400).send({ success: false, error: err.message });
+      }
+    },
 
-    const existingIdx = providers.findIndex((p) => p.name.toLowerCase() === body.name!.toLowerCase());
-    if (existingIdx !== -1) {
-      if (body.apiKey) providers[existingIdx].apiKey = body.apiKey;
-      if (body.baseUrl) providers[existingIdx].baseUrl = body.baseUrl;
-    } else {
-      providers.push({
-        name: body.name,
-        type: 'openai-compatible',
-        baseUrl: body.baseUrl || 'https://api.openai.com/v1',
-        apiKey: body.apiKey || '',
-      });
-    }
-
-    currentConfig.providers = providers;
-    return saveConfig(currentConfig);
+    remove: async (req: any, reply: any) => {
+      const { id } = req.params as { id: string };
+      const query = req.query as { purgeAuth?: string };
+      const { deleteCustomProvider, removeAuthEntry, getProviderNodeById } = await import(
+        '../opencode/user-config.js'
+      );
+      const purgeAuth = query.purgeAuth === '1' || query.purgeAuth === 'true';
+      if (getProviderNodeById(id)) {
+        const result = deleteCustomProvider(id, { purgeAuth });
+        if (!result.success) return reply.status(400).send(result);
+        return { status: 'ok', ...result };
+      }
+      // Credential-only entry (catalog provider connected via auth.json)
+      try {
+        removeAuthEntry(id);
+        return { status: 'ok', success: true, message: `Credential entry '${id}' removed` };
+      } catch (err: any) {
+        return reply.status(400).send({ success: false, error: err.message });
+      }
+    },
   };
-  app.post('/api/ui/providers/keys', handleSaveKeys);
-  app.post('/api/console/providers/keys', handleSaveKeys);
+
+  for (const prefix of ['/api/ui', '/api/console']) {
+    app.get(`${prefix}/opencode/providers`, ocHandlers.list);
+    app.get(`${prefix}/opencode/catalog`, ocHandlers.catalog);
+    app.post(`${prefix}/opencode/providers`, ocHandlers.create);
+    app.patch(`${prefix}/opencode/providers/:id`, ocHandlers.update);
+    app.post(`${prefix}/opencode/providers/:id/connect`, ocHandlers.connect);
+    app.post(`${prefix}/opencode/providers/:id/key`, ocHandlers.setKey);
+    app.delete(`${prefix}/opencode/providers/:id`, ocHandlers.remove);
+  }
 
   // 9. Client API Keys Management (for external client access)
   const handleListApiKeys = async () => {

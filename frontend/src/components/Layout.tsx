@@ -5,7 +5,6 @@ import {
   Layers,
   Network,
   Database,
-  Key,
   KeyRound,
   Terminal,
   ShieldAlert,
@@ -17,6 +16,7 @@ import {
   ChevronDown,
   RotateCcw,
   Globe,
+  Plug,
   type LucideIcon,
 } from 'lucide-react';
 import { api, type GatewayStatusResponse } from '../lib/api';
@@ -54,11 +54,17 @@ const NAV_GROUP_DEFS: NavGroupDef[] = [
     ],
   },
   {
-    id: 'grp-connections',
-    headingKey: 'nav.grpConnections',
+    id: 'grp-upstream',
+    headingKey: 'nav.grpUpstream',
+    items: [
+      { to: '/providers', labelKey: 'nav.providers', icon: Plug },
+    ],
+  },
+  {
+    id: 'grp-access',
+    headingKey: 'nav.grpAccess',
     items: [
       { to: '/api-keys', labelKey: 'nav.apiKeys', icon: KeyRound },
-      { to: '/keys', labelKey: 'nav.keys', icon: Key },
       { to: '/clients', labelKey: 'nav.clients', icon: Terminal, badge: '3' },
     ],
   },
@@ -91,9 +97,9 @@ const ROUTE_META_KEYS: Record<string, { groupKey: string; titleKey: string }> = 
   '/chains': { groupKey: 'nav.grpTraffic', titleKey: 'nav.chains' },
   '/rules': { groupKey: 'nav.grpTraffic', titleKey: 'nav.rules' },
   '/cache': { groupKey: 'nav.grpTraffic', titleKey: 'nav.cache' },
-  '/api-keys': { groupKey: 'nav.grpConnections', titleKey: 'nav.apiKeys' },
-  '/keys': { groupKey: 'nav.grpConnections', titleKey: 'nav.keys' },
-  '/clients': { groupKey: 'nav.grpConnections', titleKey: 'nav.clients' },
+  '/api-keys': { groupKey: 'nav.grpAccess', titleKey: 'nav.apiKeys' },
+  '/providers': { groupKey: 'nav.grpUpstream', titleKey: 'nav.providers' },
+  '/clients': { groupKey: 'nav.grpAccess', titleKey: 'nav.clients' },
   '/guardrails': { groupKey: 'nav.grpSafety', titleKey: 'nav.guardrails' },
   '/usage': { groupKey: 'nav.grpObservability', titleKey: 'nav.usage' },
   '/settings': { groupKey: 'nav.grpSystem', titleKey: 'nav.settings' },
