@@ -1,13 +1,44 @@
 import React, { useState, useEffect } from 'react';
+import CodeMirror, { EditorView, oneDark } from '@uiw/react-codemirror';
+import { yaml } from '@codemirror/lang-yaml';
 import { FileCode2, Save, RefreshCw, Check, AlertCircle } from 'lucide-react';
 import { api } from '../lib/api';
 import { useI18n } from '../i18n/I18nContext';
+
+/** Track the app-level `data-theme` attribute (set by Layout) so the editor follows theme switches. */
+const useAppTheme = (): string => {
+  const [theme, setTheme] = useState(() => document.documentElement.getAttribute('data-theme') || 'obsidian');
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setTheme(document.documentElement.getAttribute('data-theme') || 'obsidian');
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => observer.disconnect();
+  }, []);
+  return theme;
+};
+
+const editorFont = "'JetBrains Mono', Consolas, Monaco, monospace";
+
+/** Editor chrome (bg / gutters / selection / caret) driven by the app's CSS variables. */
+const appChrome = EditorView.theme({
+  '&': { backgroundColor: 'var(--input-bg)', color: 'var(--text-main)', fontSize: '13px' },
+  '.cm-content': { fontFamily: editorFont, lineHeight: '1.6' },
+  '.cm-gutters': { backgroundColor: 'transparent', color: 'var(--text-dim)', border: 'none', fontFamily: editorFont },
+  '.cm-activeLine': { backgroundColor: 'rgba(127, 127, 127, 0.12)' },
+  '.cm-activeLineGutter': { backgroundColor: 'rgba(127, 127, 127, 0.18)' },
+  '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
+    backgroundColor: 'rgba(99, 161, 255, 0.25) !important',
+  },
+  '&.cm-focused': { outline: 'none' },
+});
 
 export const YamlPage: React.FC = () => {
   const { t } = useI18n();
   const [yamlContent, setYamlContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const appTheme = useAppTheme();
 
   const loadYaml = async () => {
     setLoading(true);
@@ -80,26 +111,22 @@ export const YamlPage: React.FC = () => {
           {t('yaml.desc')}
         </p>
 
-        <textarea
-          value={yamlContent}
-          onChange={e => setYamlContent(e.target.value)}
-          spellCheck={false}
+        <div
           style={{
-            width: '100%',
-            height: '560px',
-            background: 'var(--input-bg)',
             border: '1px solid var(--card-border)',
             borderRadius: '10px',
-            color: 'var(--text-main)',
-            fontFamily: 'JetBrains Mono, Consolas, Monaco, monospace',
-            fontSize: '13px',
-            lineHeight: '1.6',
-            padding: '18px',
-            outline: 'none',
-            resize: 'vertical',
-            whiteSpace: 'pre',
+            overflow: 'hidden',
           }}
-        />
+        >
+          <CodeMirror
+            value={yamlContent}
+            height="560px"
+            theme={appTheme === 'light' ? [appChrome] : [oneDark, appChrome]}
+            extensions={[yaml()]}
+            onChange={setYamlContent}
+            basicSetup={{ foldGutter: true, highlightActiveLine: true, autocompletion: false }}
+          />
+        </div>
       </div>
     </div>
   );
