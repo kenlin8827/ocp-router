@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { ChatCompletionRequest, ChatCompletionResponse } from '../types/openai.js';
-import { ExecutionResult, ModelPricing } from '../types/router.js';
-import { RouterConfig } from '../config/types.js';
+import { ExecutionResult, ModelPricing, RoutingDecision, TierLevel } from '../types/router.js';
+import { ModelRegistration, RouterConfig } from '../config/types.js';
 import { PromptOptimizer } from './prompt-optimizer.js';
 import { RouterEngine } from '../router/index.js';
 import { SchemaAssertion } from '../validator/schema-assertion.js';
@@ -12,6 +12,7 @@ import { FinOpsTracker } from '../metrics/finops-tracker.js';
 import { FlywheelCollector } from '../flywheel/collector.js';
 import { SessionManager } from '../session/session-manager.js';
 import { TraceTracker } from '../trace/tracker.js';
+import { ActiveHealthProber, CircuitBreakerManager, ErrorClassifier } from '../resilience/index.js';
 
 export interface ProcessContext {
   clientIp?: string;
@@ -26,6 +27,7 @@ export class PipelineOrchestrator {
   private sessionManager: SessionManager;
   private traceTracker: TraceTracker;
   private baselinePricing: ModelPricing;
+  private healthProber?: ActiveHealthProber;
 
   constructor(
     config: RouterConfig,
@@ -43,6 +45,14 @@ export class PipelineOrchestrator {
     // Lookup baseline pricing for FinOps dollar calculation
     const baselineModel = this.registry.getModel(config.baselineModel) || this.registry.getModelForTier('flagship');
     this.baselinePricing = baselineModel.pricing;
+
+    if (config.circuitBreaker?.activeProbing?.enabled) {
+      this.healthProber = new ActiveHealthProber(
+        this.registry.getCircuitBreakerManager(),
+        this.registry,
+        config.circuitBreaker.activeProbing.intervalMs
+      );
+    }
   }
 
   public getTracker(): FinOpsTracker {
@@ -61,13 +71,29 @@ export class PipelineOrchestrator {
     return this.traceTracker;
   }
 
+  public getRegistry(): ProviderRegistry {
+    return this.registry;
+  }
+
+  public getCircuitBreakerManager(): CircuitBreakerManager {
+    return this.registry.getCircuitBreakerManager();
+  }
+
+  public startProber(): void {
+    if (this.healthProber) this.healthProber.start();
+  }
+
+  public stopProber(): void {
+    if (this.healthProber) this.healthProber.stop();
+  }
+
   /**
-   * The complete orchestration workflow:
+   * Complete orchestration workflow:
    * 1. Prompt normalization (canonical order)
    * 2. Zero-header session identification & prefix fingerprinting
    * 3. Multi-Layer hierarchical routing (Layer 0 -> Layer 1 -> Layer 2)
-   * 4. Monotonic Ratchet session state enforcement (escalation only + pinned model for KV Cache protection)
-   * 5. Execution with cascading fallback & schema assertion (fast lead, flagship fallback)
+   * 4. Monotonic Ratchet session state enforcement + Session Self-Healing
+   * 5. Execution with Circuit Breaker, Transparent Failover & Schema Assertion
    * 6. Budget enforcement & FinOps accounting
    * 7. Active learning data flywheel logging
    * 8. Post-turn prefix fingerprint registration
@@ -114,7 +140,6 @@ export class PipelineOrchestrator {
     );
 
     // 4. Apply Monotonic Session Ratchet
-    // Intercept any downgrade attempts from short follow-ups; lock to pinned model to preserve KV cache
     const ratchetResult = this.sessionManager.applyRatchet(
       sessionId,
       initialDecision,
@@ -124,30 +149,47 @@ export class PipelineOrchestrator {
     decision.sessionId = sessionId;
     decision.sessionRatchetApplied = ratchetResult.ratchetApplied;
 
-    let finalResponse: ChatCompletionResponse;
     let actualTier = decision.targetTier;
-    // Prefer pinned model from session ratchet to maximize KV cache hit rate
-    let actualModel = (ratchetResult.session.pinnedModel ? this.registry.getModel(ratchetResult.session.pinnedModel) : null) || this.registry.getModelForTier(actualTier);
+
+    // 4B. Session Self-Healing:
+    // If the pinned model for this session is currently tripped in OPEN state,
+    // dynamically unpin/repin to the healthiest candidate model in actualTier!
+    let preferredModel = ratchetResult.session.pinnedModel
+      ? this.registry.getModel(ratchetResult.session.pinnedModel)
+      : null;
+
+    const cbManager = this.registry.getCircuitBreakerManager();
+    if (preferredModel && !cbManager.isAvailable(preferredModel.id)) {
+      const healthyReplacement = this.registry.getModelForTier(actualTier, true);
+      if (healthyReplacement && healthyReplacement.id !== preferredModel.id) {
+        this.sessionManager.repinModel(sessionId, healthyReplacement);
+        preferredModel = healthyReplacement;
+      }
+    }
+
+    let finalResponse: ChatCompletionResponse;
+    let actualModel: ModelRegistration = preferredModel || this.registry.getModelForTier(actualTier, true);
     let fallbackOccurred = false;
     let fallbackReason: string | undefined = undefined;
+    let failoverOccurred = false;
+    let failoverAttempts = 1;
+    let failoverPath: string[] = [];
 
     // 5. Execution with Cascading Fallback & Schema Assertion
     if (decision.needsSchemaValidation && this.config.fallback.enabled && !request.router_options?.disable_fallback) {
-      // 5A: Fast Tier lead - Deploy Fast Tier first
-      const fastModel = this.registry.getModelForTier('fast');
-      const preparedFastReq = BudgetManager.applyBudget(
+      // 5A: Fast Tier lead - Deploy Fast Tier first with resilience
+      const fastResult = await this.executeCandidatePool(
         normalizedRequest,
-        fastModel,
-        decision,
-        this.config.budget
+        'fast',
+        decision
       );
 
       let fastRes: ChatCompletionResponse | null = null;
       let assertionPassed = false;
       let assertionError = '';
 
-      try {
-        fastRes = await this.registry.execute(preparedFastReq, fastModel);
+      if (fastResult.success && fastResult.response) {
+        fastRes = fastResult.response;
         const content = fastRes.choices[0]?.message?.content || '';
 
         // Local static AST / Schema assertion (Zero extra LLM cost!)
@@ -156,51 +198,67 @@ export class PipelineOrchestrator {
           assertionPassed = true;
           finalResponse = fastRes;
           actualTier = 'fast';
-          actualModel = fastModel;
+          actualModel = fastResult.modelUsed!;
+          failoverOccurred = fastResult.failoverOccurred;
+          failoverAttempts = fastResult.failoverAttempts;
+          failoverPath = fastResult.failoverPath;
         } else {
           assertionError = validation.error || 'Schema validation assertion failed';
         }
-      } catch (err: any) {
-        assertionError = `Fast Tier Execution Error: ${err.message}`;
+      } else {
+        assertionError = `Fast Tier Execution Error: ${fastResult.lastError?.message}`;
       }
 
-      // 5B: Flagship fallback - If Fast Tier failed assertion, silent escalation to Flagship/Reasoning
+      // 5B: Flagship fallback - If Fast Tier failed assertion or execution, silent escalation
       if (!assertionPassed) {
         fallbackOccurred = true;
         fallbackReason = assertionError;
         const escalateTier = this.config.fallback.escalateTier || 'flagship';
-        const flagshipModel = this.registry.getModelForTier(escalateTier);
 
         const failedContent = fastRes?.choices[0]?.message?.content || '';
         const fallbackReq = FallbackContextBuilder.buildEscalationRequest(
           normalizedRequest,
           failedContent,
           assertionError,
-          flagshipModel.id
+          escalateTier
         );
 
-        // Apply budget ceilings to flagship model
-        const preparedFallbackReq = BudgetManager.applyBudget(
+        const flagshipResult = await this.executeCandidatePool(
           fallbackReq,
-          flagshipModel,
-          decision,
-          this.config.budget
+          escalateTier,
+          decision
         );
 
-        finalResponse = await this.registry.execute(preparedFallbackReq, flagshipModel);
+        if (!flagshipResult.success || !flagshipResult.response) {
+          throw flagshipResult.lastError || new Error(`Flagship escalation failed for tier '${escalateTier}'`);
+        }
+
+        finalResponse = flagshipResult.response;
         actualTier = escalateTier;
-        actualModel = flagshipModel;
+        actualModel = flagshipResult.modelUsed!;
+        failoverOccurred = flagshipResult.failoverOccurred;
+        failoverAttempts = flagshipResult.failoverAttempts;
+        failoverPath = flagshipResult.failoverPath;
       }
     } else {
-      // Standard Direct Model Execution
-      const preparedReq = BudgetManager.applyBudget(
+      // Standard Direct Model Execution with Multi-Model Failover & Circuit Breaker
+      const execResult = await this.executeCandidatePool(
         normalizedRequest,
-        actualModel,
+        actualTier,
         decision,
-        this.config.budget
+        preferredModel
       );
 
-      finalResponse = await this.registry.execute(preparedReq, actualModel);
+      if (!execResult.success || !execResult.response) {
+        throw execResult.lastError || new Error(`Execution failed for tier '${actualTier}'`);
+      }
+
+      finalResponse = execResult.response;
+      actualModel = execResult.modelUsed!;
+      actualTier = execResult.tierUsed!;
+      failoverOccurred = execResult.failoverOccurred;
+      failoverAttempts = execResult.failoverAttempts;
+      failoverPath = execResult.failoverPath;
     }
 
     // 6. Post-Turn Registration: Register completed turn prefix fingerprint for zero-header tracking
@@ -291,6 +349,8 @@ export class PipelineOrchestrator {
       },
     });
 
+    const breakerState = cbManager.getBreaker(actualModel.id)?.getState() || 'CLOSED';
+
     return {
       response: finalResponse!,
       tierUsed: actualTier,
@@ -298,6 +358,10 @@ export class PipelineOrchestrator {
       layerUsed: decision.layerUsed || 'layer0',
       fallbackOccurred,
       fallbackReason,
+      failoverOccurred,
+      failoverAttempts,
+      failoverPath,
+      breakerState,
       sessionId,
       sessionRatchetApplied: ratchetResult.ratchetApplied,
       traceId,
@@ -305,6 +369,122 @@ export class PipelineOrchestrator {
       baselineCostUsd: baselineCost,
       savedCostUsd,
       latencyMs,
+    };
+  }
+
+  /**
+   * Resilient candidate execution pool dispatcher.
+   * Transparently iterates through healthy candidate models in the tier.
+   * If Candidate 1 fails (e.g. 402 quota exhausted, 503 outage, 429 rate limit),
+   * trips the breaker for Candidate 1 and immediately fails over to Candidate 2.
+   */
+  private async executeCandidatePool(
+    request: ChatCompletionRequest,
+    tier: TierLevel,
+    decision: RoutingDecision,
+    preferredModel?: ModelRegistration | null
+  ): Promise<{
+    success: boolean;
+    response?: ChatCompletionResponse;
+    modelUsed?: ModelRegistration;
+    tierUsed?: TierLevel;
+    failoverOccurred: boolean;
+    failoverAttempts: number;
+    failoverPath: string[];
+    lastError?: any;
+  }> {
+    const cbManager = this.registry.getCircuitBreakerManager();
+    const candidateMap = new Map<string, ModelRegistration>();
+
+    // 1. Add preferred model first if healthy
+    if (preferredModel && cbManager.isAvailable(preferredModel.id)) {
+      candidateMap.set(preferredModel.id, preferredModel);
+    }
+
+    // 2. Add all healthy candidate models for this tier
+    for (const m of this.registry.getCandidateModelsForTier(tier, true)) {
+      if (!candidateMap.has(m.id)) candidateMap.set(m.id, m);
+    }
+
+    // 3. If no healthy models in tier, try fallback tier (e.g. flagship)
+    if (candidateMap.size === 0 && tier !== 'flagship') {
+      for (const m of this.registry.getCandidateModelsForTier('flagship', true)) {
+        if (!candidateMap.has(m.id)) candidateMap.set(m.id, m);
+      }
+    }
+
+    // 4. If still empty, add any registered models in tier even if OPEN (last-resort attempt)
+    if (candidateMap.size === 0) {
+      for (const m of this.registry.getCandidateModelsForTier(tier, false)) {
+        if (!candidateMap.has(m.id)) candidateMap.set(m.id, m);
+      }
+    }
+
+    // 5. Ultimate fallback if system has any models
+    if (candidateMap.size === 0) {
+      const anyModel = this.registry.getModelForTier(tier, false);
+      if (anyModel) candidateMap.set(anyModel.id, anyModel);
+    }
+
+    const candidateList = Array.from(candidateMap.values());
+    let lastError: any = null;
+    let failoverAttempts = 0;
+    const failoverPath: string[] = [];
+
+    for (const candidate of candidateList) {
+      failoverAttempts++;
+      failoverPath.push(candidate.id);
+
+      // Check circuit breaker
+      const check = cbManager.canExecute(candidate.id);
+      if (!check.allowed && candidateList.length > 1) {
+        // Skip tripped models if alternative candidates exist in pool
+        continue;
+      }
+
+      const preparedReq = BudgetManager.applyBudget(
+        request,
+        candidate,
+        decision,
+        this.config.budget
+      );
+
+      try {
+        const response = await this.registry.execute(preparedReq, candidate);
+        cbManager.recordSuccess(candidate.id);
+        return {
+          success: true,
+          response,
+          modelUsed: candidate,
+          tierUsed: candidate.tier,
+          failoverOccurred: failoverAttempts > 1,
+          failoverAttempts,
+          failoverPath,
+        };
+      } catch (err: any) {
+        lastError = err;
+        const diagnosis = ErrorClassifier.classify(err, candidate.id, candidate.provider, this.config.circuitBreaker);
+        cbManager.recordFailure(candidate.id, diagnosis, candidate.provider);
+
+        // If not retriable (e.g. client parameter error / 400), stop failover immediately
+        if (!diagnosis.isRetriable) {
+          return {
+            success: false,
+            failoverOccurred: false,
+            failoverAttempts,
+            failoverPath,
+            lastError: err,
+          };
+        }
+      }
+    }
+
+    return {
+      success: false,
+      failoverOccurred: failoverAttempts > 1,
+      failoverAttempts,
+      failoverPath,
+      lastError: lastError || new Error(`No available models for tier '${tier}'`),
     };
   }
 }

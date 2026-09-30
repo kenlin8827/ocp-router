@@ -1,6 +1,7 @@
 import { LLMProvider } from './base.js';
 import { ModelRegistration, ProviderConfig } from '../config/types.js';
 import { ChatCompletionRequest, ChatCompletionResponse } from '../types/openai.js';
+import { UpstreamError } from '../resilience/error-classifier.js';
 
 export class AnthropicProvider implements LLMProvider {
   public name: string;
@@ -67,7 +68,16 @@ export class AnthropicProvider implements LLMProvider {
 
       if (!res.ok) {
         const errorText = await res.text();
-        throw new Error(`Anthropic error [${res.status}]: ${errorText}`);
+        const retryAfterHeader = res.headers.get('retry-after');
+        const retryAfterSeconds = retryAfterHeader ? parseInt(retryAfterHeader, 10) : undefined;
+        throw new UpstreamError({
+          message: `Anthropic error [${res.status}]: ${errorText}`,
+          status: res.status,
+          errorBody: errorText,
+          provider: this.name,
+          modelId: model.id,
+          retryAfterSeconds: isNaN(retryAfterSeconds as number) ? undefined : retryAfterSeconds,
+        });
       }
 
       const data = (await res.json()) as any;

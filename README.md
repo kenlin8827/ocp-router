@@ -28,6 +28,7 @@ By combining **hierarchical 3-layer model-driven routing**, **monotonic session 
 - **💸 70% ~ 90% Cost Reduction**: Trivial prompts and structured extractions execute instantaneously on fast micro-models; complex engineering queries automatically escalate to flagship models.
 - **⚡ Keyless Upstream Proxying**: Integrates natively with your local OpenCode v2 daemon, synchronizing 90+ active models, credentials, and token pricing with zero configuration.
 - **🔒 Multi-Turn Monotonic Session Ratchet**: Once a conversation escalates to a flagship model, mid-dialogue downgrades are strictly blocked, preventing cognitive degradation.
+- **🛡️ Industrial-Grade Circuit Breaker & Failover**: Upstream error taxonomy (402 quota exhaustion hard-trip for 12h, 5xx outages exponential backoff up to 5h, 429 adaptive backoff), transparent same-tier candidate failover, and session self-healing.
 - **🚀 Upstream KV Cache Protection**: Multi-turn sessions are pinned to the exact physical model instance, preserving 80%~95% of upstream Provider KV Prompt Cache (Anthropic, DeepSeek, OpenAI).
 - **🎯 Zero-Header Prefix-Chain Fingerprinting**: Tracks dialogue turns automatically using SHA-256 Prefix-Chain Hashing without requiring custom client headers.
 - **🛡️ Local Schema Assertion & Silent Fallback**: Lightweight models lead structured tasks; if JSON parsing or schema validation fails, the query silently escalates to a flagship model with error context.
@@ -184,6 +185,10 @@ Every API response includes FinOps diagnostic headers:
 * `X-OCP-Router-Trace-ID`: Unique trace identifier for the request turn (e.g. `trace_8df3e29a...`).
 * `X-OCP-Router-Tier`: Target tier utilized (`fast`, `flagship`, `reasoning`).
 * `X-OCP-Router-Model`: Specific upstream model ID invoked.
+* `X-OCP-Router-Failover`: Whether upstream failover was triggered (`true` / `false`).
+* `X-OCP-Router-Failover-Attempts`: Number of model attempts before success (e.g. `2`).
+* `X-OCP-Router-Failover-Path`: Traversal path taken during failover (e.g. `primary-flagship -> secondary-flagship`).
+* `X-OCP-Router-Breaker-State`: Circuit breaker state of the executing model (`CLOSED`, `HALF_OPEN`).
 * `X-OCP-Router-Session-ID`: Session fingerprint hash (`sess_8df3e29a...`).
 * `X-OCP-Router-Session-Ratchet`: Whether the monotonic ratchet locked the tier (`true` / `false`).
 * `X-OCP-Router-Cost-USD`: Incurred cost for this request.
@@ -252,6 +257,19 @@ curl http://127.0.0.1:3000/v1/metrics
 }
 ```
 
+### 4. Circuit Breakers Inspection & Recovery
+#### 🩺 Inspect Breaker States `GET /v1/health/circuit-breakers`
+Inspect real-time health, remaining cooldowns, failure categories, and request statistics for all models:
+```bash
+curl http://127.0.0.1:3000/v1/health/circuit-breakers
+```
+
+#### 🔄 Admin Manual Reset `POST /v1/health/circuit-breakers/reset`
+Instantly reset circuit breakers back to CLOSED health (supports `?model=...` to reset a specific model, or omitted to reset all):
+```bash
+curl -X POST http://127.0.0.1:3000/v1/health/circuit-breakers/reset
+```
+
 ---
 
 ## FAQ
@@ -265,6 +283,13 @@ Standard stateless routers dispatch short follow-ups (e.g. "thanks", "fix line 3
 ### Q3: Does the initial untrained micro-model misclassify requests?
 **Never**. The zero-weight base model scaffold ($W=\mathbf{0}, b=\mathbf{0}$) produces a uniform Softmax probability of $\approx 0.334$, strictly below the $0.85$ confidence threshold. This guarantees 100% deterministic cascade to Layer 2 until training samples accumulate.
 
+### Q4: How does the router handle upstream outages or quota exhaustion?
+**OCP Router provides enterprise-grade resilience & failover (ADR-0008)**:
+- **Quota / Balance Exhaustion (HTTP 402)**: Hard-trips immediately into OPEN (default 12h cooldown), bypassing the model with zero latency.
+- **Service Outages (5xx / Timeouts)**: Tripped upon consecutive failures or sliding window error rates, applying exponential backoff up to 5 hours max.
+- **Transparent Same-Tier Failover**: Automatically retries across candidate models within the same tier in milliseconds; the client receives a seamless 200 response.
+- **Session Self-Healing**: Automatically unpins and migrates active sessions to a healthy candidate model if the pinned model trips.
+
 ---
 
 ## Developer Guide & Architecture
@@ -272,7 +297,7 @@ Standard stateless routers dispatch short follow-ups (e.g. "thanks", "fix line 3
 For deep-dive documentation into micro-tensor forward pass mathematical proofs, active learning flywheel distillation, unit testing suites, and Architecture Decision Records (ADRs):
 
 * 📘 **[Developer & Architecture Guide (DEVELOPMENT.md)](DEVELOPMENT.md)**
-* 🏛️ **[Architecture Decision Records (ADR)](docs/adr/README.md)**
+* 🏛️ **[Architecture Decision Records (ADR)](docs/adr/zh-CN/README.md)** (ADR-0001 through ADR-0008)
 
 ---
 

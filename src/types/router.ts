@@ -65,6 +65,10 @@ export interface ExecutionResult {
   baselineCostUsd: number;
   savedCostUsd: number;
   latencyMs: number;
+  failoverOccurred?: boolean;
+  failoverAttempts?: number;
+  failoverPath?: string[];
+  breakerState?: string;
 }
 
 

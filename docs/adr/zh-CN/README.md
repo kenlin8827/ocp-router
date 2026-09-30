@@ -15,4 +15,5 @@
 | [ADR-0005](./0005-auto-initializing-base-model-scaffold.md) | 本地空白底座模型自动初始化与确定性穿透 | **已实现 (Accepted)** | 2026-09-29 | 自动落盘未训练微张量底座 (W=0, b=0)，数学严格保证置信度 0.33 < 0.85，100% 确定性穿透至 Layer 2 并支持飞轮原地自演进 |
 | [ADR-0006](./0006-monotonic-session-ratchet-and-prefix-fingerprinting.md) | 多轮会话单调递增升档与前缀指纹追踪 | **已实现 (Accepted)** | 2026-09-29 | 解决中途乱切导致的智力倒退与 KV Cache 归零问题，无粘性头下利用前缀链哈希 100% 精准定位并执行只升不降 |
 | [ADR-0007](./0007-symmetrical-pipeline-naming-classifier-and-judge.md) | 层级对称性流水线命名演进：Layer 1 分类器冲锋与 Layer 2 裁决者断后 | **已实现 (Accepted)** | 2026-09-29 | 消除突兀空间命名，确立 layer1-classifier（极速冲锋）与 layer2-judge（专职语义裁决）对称体系并彻底清理旧存根 |
+| [ADR-0008](./0008-industrial-grade-circuit-breaker-and-health-management.md) | 顶级工业级模型熔断、多级容灾与健康管理系统 | **已实现 (Accepted)** | 2026-09-30 | 故障精准解构（402额度硬熔断/5xx阶梯退避5h/429瞬时退避）、同Tier毫秒级透明故障转移、会话单调棘轮自愈与全维可观测接口 |
 

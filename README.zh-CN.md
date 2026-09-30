@@ -26,6 +26,7 @@
 - **💸 70% ~ 90% 成本削减**：简单指令与模式抽取毫秒级由轻量模型承接；复杂编程与高难度逻辑自动、无感升档至顶配旗舰模型。
 - **⚡ 免密钥上游代理**：秒级直连本地 OpenCode v2 守护进程，自动拉取已配置的 90+ 活跃模型、凭据与 Token 计费阶梯，客户端完全免配 API Key。
 - **🔒 多轮对话单调递增锁（只升不降）**：会话一旦升级至旗舰模型，后续轮次绝不降级至低阶小模型，根除模型乱切带来的“智力骤降”与幻觉。
+- **🛡️ 工业级模型熔断与透明容灾 (Circuit Breaker & Failover)**：精准错误解构（402 余额不足硬熔断 12 小时、5xx 连续宕机阶梯退避最高 5 小时、429 频控自适应退避），同 Tier 备选模型毫秒级透明自动故障转移，会话单调棘轮自愈解绑，保障 99.99% 企业级高可用。
 - **🚀 上游 KV Cache 极致保护**：多轮会话物理锁定在完全相同的模型实例上，大幅提高 OpenAI、Anthropic、DeepSeek 等上游厂商的 Prefill 缓存命中率（80%~95%），极速响应并节省缓存开销。
 - **🎯 零 Header 前缀链指纹识别**：无需客户端传递任何自定义 Header，基于历史对话前缀链哈希，自动精准追踪多轮会话生命周期。
 - **🛡️ 本地静态 Schema 断言与静默重试**：结构化 JSON 输出任务由轻量模型先发执行，若本地 AST / Schema 校验不通过，自动携带报错上下文静默升档至旗舰模型修复重试。
@@ -183,6 +184,10 @@ OCP Router 在暴露上游全部原生模型的同时，提供了开箱即用的
 每次 API 调用均会在 HTTP 响应头中注入详细的 FinOps 性能与成本诊断信息：
 * `X-OCP-Router-Tier`：本次实际承接调用的模型层级（`fast`, `flagship`, `reasoning`）。
 * `X-OCP-Router-Model`：实际承接推理的上游模型 ID（例如 `volcengine/kimi-k2.7-code`）。
+* `X-OCP-Router-Failover`：是否触发了同 Tier 上游故障自动转移（`true` / `false`）。
+* `X-OCP-Router-Failover-Attempts`：本次请求尝试调用的模型候选数量（如 `1` 为首次直接成功，`2` 为主模型故障后备用模型成功接管）。
+* `X-OCP-Router-Failover-Path`：故障转移的完整模型调用链路（例如 `primary-flagship -> secondary-flagship`）。
+* `X-OCP-Router-Breaker-State`：承接模型当前的熔断器健康状态（`CLOSED`, `HALF_OPEN`）。
 * `X-OCP-Router-Session-ID`：自动计算出的会话唯一哈希指纹。
 * `X-OCP-Router-Session-Ratchet`：是否触发了多轮只升不降棘轮锁死（`true` / `false`）。
 * `X-OCP-Router-Trace-ID`：本次请求在网关中记录的唯一轨迹 ID（例如 `trace_8df3e29a...`）。
@@ -252,6 +257,36 @@ curl http://127.0.0.1:3000/v1/metrics
 }
 ```
 
+### 4. 熔断器状态大盘与管理
+#### 🩺 查询所有模型熔断状态 `GET /v1/health/circuit-breakers`
+实时查看所有已注册模型的健康态、熔断原因、剩余冷却时长与调用计数：
+```bash
+curl http://127.0.0.1:3000/v1/health/circuit-breakers
+```
+```json
+{
+  "object": "circuit_breaker_summary",
+  "total": 3,
+  "healthy": 2,
+  "tripped": 1,
+  "breakers": [
+    {
+      "modelId": "claude-3-5-sonnet",
+      "state": "OPEN",
+      "reason": "Quota or balance exhausted for model 'claude-3-5-sonnet'",
+      "category": "QUOTA_EXHAUSTED",
+      "remainingCooldownMs": 43190000
+    }
+  ]
+}
+```
+
+#### 🔄 管理员手动复位熔断器 `POST /v1/health/circuit-breakers/reset`
+在上游账户完成充值或厂商故障排除后，立即复位熔断器重回 CLOSED 健康状态（支持通过 `?model=...` 复位特定模型）：
+```bash
+curl -X POST http://127.0.0.1:3000/v1/health/circuit-breakers/reset
+```
+
 ---
 
 ## 常见问题 (FAQ)
@@ -265,6 +300,13 @@ curl http://127.0.0.1:3000/v1/metrics
 ### Q3: 本地分类小模型冷启动时会误判吗？
 **绝不会**。系统默认附带的未训练微张量底座经过严密数学设计（$W=\mathbf{0}, b=\mathbf{0}$），Softmax 理论概率均匀分布为 $\approx 0.334$，必然小于 $0.85$ 门控阈值。在积累足够生产飞轮数据并执行蒸馏微调前，100% 确定性优雅穿透至 Layer 2 专职裁决模型。
 
+### Q4: 上游某个模型突然欠费或宕机 5 小时怎么办？
+**OCP Router 拥有顶级工业级弹性熔断与故障转移能力 (ADR-0008)**：
+- **欠费 / 额度耗尽 (HTTP 402)**：系统即刻将其硬熔断（默认避让 12 小时），后续请求零耗时绕开，绝不会反复冲击上游导致超时；
+- **服务雪崩 / 宕机**：连续失败或滑动窗口超限后触发熔断并以指数退避（最高 5 小时封顶）；冷却结束后以微量 Canary 试探探活；
+- **同 Tier 透明故障转移 (Failover)**：若 Primary 模型挂了，系统在同一次请求内毫秒级自动切换至同 Tier 的 Backup 备用模型，客户端无感获得 200 响应；
+- **会话自愈 (Session Self-Healing)**：若先前会话锁定了故障模型，系统自动将其平滑迁移绑定至健康的同 Tier 模型，根除死锁。
+
 ---
 
 ## 开发者与架构进阶
@@ -272,7 +314,7 @@ curl http://127.0.0.1:3000/v1/metrics
 如果您对底层的微张量前向计算数学证明、香农熵特征提取、主动学习数据飞轮原地微调训练、架构决策记录等内容感兴趣，请阅读：
 
 * 📘 **[开发者深度指南 (DEVELOPMENT.zh-CN.md)](DEVELOPMENT.zh-CN.md)**：包含完整数学推导、数据飞轮训练指令、单元测试套件解析与代码规范。
-* 🏛️ **[架构决策记录 (ADR)](docs/adr/zh-CN/README.md)**：记录 ADR-0001 至 ADR-0007 全部架构选型动因与演化历史。
+* 🏛️ **[架构决策记录 (ADR)](docs/adr/zh-CN/README.md)**：记录 ADR-0001 至 ADR-0008 全部架构选型动因与演化历史。
 
 ---
 

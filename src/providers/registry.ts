@@ -4,15 +4,18 @@ import { AnthropicProvider } from './anthropic.js';
 import { ModelRegistration, ProviderConfig, RouterConfig } from '../config/types.js';
 import { TierLevel } from '../types/router.js';
 import { ChatCompletionRequest, ChatCompletionResponse } from '../types/openai.js';
+import { CircuitBreakerManager, UpstreamError } from '../resilience/index.js';
 
 export class ProviderRegistry {
   private providers = new Map<string, LLMProvider>();
   private models = new Map<string, ModelRegistration>();
   private tierDefaults = new Map<TierLevel, ModelRegistration>();
+  private circuitBreakerManager: CircuitBreakerManager;
   private mockMode = false;
 
   constructor(config: RouterConfig, mockMode = false) {
     this.mockMode = mockMode;
+    this.circuitBreakerManager = new CircuitBreakerManager(config.circuitBreaker);
 
     // Initialize providers
     for (const pConfig of config.providers || []) {
@@ -25,12 +28,7 @@ export class ProviderRegistry {
 
     // Initialize models
     for (const mConfig of config.models || []) {
-      this.models.set(mConfig.id, mConfig);
-      if (mConfig.isDefaultInTier) {
-        this.tierDefaults.set(mConfig.tier, mConfig);
-      } else if (!this.tierDefaults.has(mConfig.tier)) {
-        this.tierDefaults.set(mConfig.tier, mConfig);
-      }
+      this.registerModel(mConfig, mConfig.isDefaultInTier);
     }
 
     // In mock testing mode, if no models provided, populate mock tier models
@@ -71,34 +69,65 @@ export class ProviderRegistry {
 
   public registerModel(model: ModelRegistration, isDefault = false): void {
     this.models.set(model.id, model);
+    this.circuitBreakerManager.registerModel(model);
     if (isDefault || !this.tierDefaults.has(model.tier)) {
       this.tierDefaults.set(model.tier, model);
     }
   }
 
+  public getCircuitBreakerManager(): CircuitBreakerManager {
+    return this.circuitBreakerManager;
+  }
+
   public setDefaultTierModel(tier: TierLevel, model: ModelRegistration): void {
     this.models.set(model.id, model);
     this.tierDefaults.set(tier, model);
+    this.circuitBreakerManager.registerModel(model);
   }
 
   public getModel(modelId: string): ModelRegistration | undefined {
     return this.models.get(modelId);
   }
 
-  public getModelForTier(tier: TierLevel): ModelRegistration {
-    const model = this.tierDefaults.get(tier);
-    if (!model) {
-      const fallback =
-        this.tierDefaults.get('flagship') ||
-        this.tierDefaults.get('fast') ||
-        this.tierDefaults.get('reasoning') ||
-        Array.from(this.models.values())[0];
-      if (!fallback) {
-        throw new Error(`No models registered in system.`);
-      }
-      return fallback;
+  /**
+   * Returns all candidate models registered for a given tier, sorted by priority.
+   * If healthyOnly is true, only returns models where circuit breaker allows execution.
+   */
+  public getCandidateModelsForTier(tier: TierLevel, healthyOnly = true): ModelRegistration[] {
+    const list = Array.from(this.models.values()).filter(m => m.tier === tier);
+    list.sort((a, b) => {
+      const prioA = a.isDefaultInTier ? 0 : (a.priority ?? 10);
+      const prioB = b.isDefaultInTier ? 0 : (b.priority ?? 10);
+      return prioA - prioB;
+    });
+
+    if (healthyOnly) {
+      return list.filter(m => this.circuitBreakerManager.isAvailable(m.id));
     }
-    return model;
+    return list;
+  }
+
+  public getModelForTier(tier: TierLevel, healthyOnly = true): ModelRegistration {
+    const candidates = this.getCandidateModelsForTier(tier, healthyOnly);
+    if (candidates.length > 0) {
+      return candidates[0];
+    }
+    // If healthyOnly was true and no healthy models found, fallback to any model in tier
+    if (healthyOnly) {
+      const anyCandidate = this.getCandidateModelsForTier(tier, false);
+      if (anyCandidate.length > 0) {
+        return anyCandidate[0];
+      }
+    }
+    const fallback =
+      this.tierDefaults.get('flagship') ||
+      this.tierDefaults.get('fast') ||
+      this.tierDefaults.get('reasoning') ||
+      Array.from(this.models.values())[0];
+    if (!fallback) {
+      throw new Error(`No models registered in system.`);
+    }
+    return fallback;
   }
 
   public getAllModels(): ModelRegistration[] {
@@ -128,6 +157,20 @@ export class ProviderRegistry {
     request: ChatCompletionRequest,
     model: ModelRegistration
   ): Promise<ChatCompletionResponse> {
+    const reqAny = request as any;
+    if (reqAny.__simulate_error_model__ === model.id || reqAny.__simulate_error_all__) {
+      const status = reqAny.__simulate_status__ || 503;
+      const errorMsg = reqAny.__simulate_message__ || `Simulated error for model ${model.id} (Status ${status})`;
+      throw new UpstreamError({
+        message: errorMsg,
+        status,
+        errorBody: JSON.stringify({ error: { message: errorMsg, code: reqAny.__simulate_code__ } }),
+        provider: model.provider,
+        modelId: model.id,
+        retryAfterSeconds: reqAny.__simulate_retry_after__,
+      });
+    }
+
     const isJsonRequested =
       request.response_format?.type === 'json_object' ||
       request.response_format?.type === 'json_schema' ||

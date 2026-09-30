@@ -1,5 +1,7 @@
 import { ModelPricing, TierLevel } from '../types/router.js';
 
+import { CircuitBreakerConfig } from '../resilience/types.js';
+
 export interface ProviderConfig {
   name: string;
   type: 'openai-compatible' | 'anthropic';
@@ -16,6 +18,7 @@ export interface ModelRegistration {
   upstreamModel: string; // actual model name sent to upstream
   tier: TierLevel;
   pricing: ModelPricing;
+  priority?: number; // lower number = higher priority within the tier (e.g. 1 is primary, 2 is backup)
   isDefaultInTier?: boolean;
   supportsReasoningEffort?: boolean;
   supportsPromptCaching?: boolean;
@@ -94,7 +97,10 @@ export interface RouterConfig {
   classifier?: ClassifierConfig;
   flywheel?: FlywheelConfig;
   session?: SessionConfig;
+  circuitBreaker?: CircuitBreakerConfig;
   providers?: ProviderConfig[];
   models?: ModelRegistration[];
   baselineModel: string; // Default flagship model id for calculating FinOps cost savings
 }
+
+export type { CircuitBreakerConfig };

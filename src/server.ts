@@ -34,7 +34,7 @@ export function createServer(
   // Optional Admin API Key Authorization hook
   if (config.adminApiKey) {
     app.addHook('onRequest', async (req, reply) => {
-      if (req.url === '/health' || req.url === '/v1/models') return;
+      if (req.url === '/health' || req.url.startsWith('/v1/health') || req.url === '/v1/models') return;
       const auth = req.headers.authorization;
       const token = auth?.replace(/^Bearer\s+/i, '');
       if (token !== config.adminApiKey) {
@@ -43,12 +43,37 @@ export function createServer(
     });
   }
 
-  // 1. Health check
+  // 1. Health check (Enriched with Circuit Breaker status)
   app.get('/health', async () => {
+    const cbSummary = registry.getCircuitBreakerManager().getSummary();
+    const isDegraded = cbSummary.tripped > 0;
     return {
-      status: 'ok',
+      status: isDegraded ? (cbSummary.healthy === 0 ? 'outage' : 'degraded') : 'ok',
       timestamp: new Date().toISOString(),
       modelsRegistered: registry.getAllModels().length,
+      circuitBreakers: {
+        total: cbSummary.total,
+        healthy: cbSummary.healthy,
+        tripped: cbSummary.tripped,
+        halfOpen: cbSummary.halfOpen,
+      },
+    };
+  });
+
+  // 1B. Circuit Breakers Inspection Endpoint
+  app.get('/v1/health/circuit-breakers', async () => {
+    return registry.getCircuitBreakerManager().getSummary();
+  });
+
+  // 1C. Reset Tripped Circuit Breakers (Admin recovery after quota top-up)
+  app.post('/v1/health/circuit-breakers/reset', async (req) => {
+    const query = req.query as { model?: string };
+    const body = req.body as { model?: string } | undefined;
+    const targetModel = query?.model || body?.model;
+    const result = registry.getCircuitBreakerManager().reset(targetModel);
+    return {
+      status: 'ok',
+      ...result,
     };
   });
 
@@ -275,6 +300,10 @@ export function createServer(
       reply.header('X-OCP-Router-Tier', tierHeader);
       reply.header('X-OCP-Router-Layer', result.layerUsed || 'layer0');
       reply.header('X-OCP-Router-Model', result.modelUsed);
+      reply.header('X-OCP-Router-Failover', result.failoverOccurred ? 'true' : 'false');
+      reply.header('X-OCP-Router-Failover-Attempts', (result.failoverAttempts || 1).toString());
+      reply.header('X-OCP-Router-Failover-Path', result.failoverPath?.join(' -> ') || '');
+      reply.header('X-OCP-Router-Breaker-State', result.breakerState || 'CLOSED');
       reply.header('X-OCP-Router-Session-ID', result.sessionId || '');
       reply.header('X-OCP-Router-Session-Ratchet', result.sessionRatchetApplied ? 'true' : 'false');
       reply.header('X-OCP-Router-Trace-ID', result.traceId || '');
@@ -294,6 +323,10 @@ export function createServer(
           'X-OCP-Router-Tier': tierHeader,
           'X-OCP-Router-Layer': result.layerUsed || 'layer0',
           'X-OCP-Router-Model': result.modelUsed,
+          'X-OCP-Router-Failover': result.failoverOccurred ? 'true' : 'false',
+          'X-OCP-Router-Failover-Attempts': (result.failoverAttempts || 1).toString(),
+          'X-OCP-Router-Failover-Path': result.failoverPath?.join(' -> ') || '',
+          'X-OCP-Router-Breaker-State': result.breakerState || 'CLOSED',
           'X-OCP-Router-Session-ID': result.sessionId || '',
           'X-OCP-Router-Session-Ratchet': result.sessionRatchetApplied ? 'true' : 'false',
           'X-OCP-Router-Trace-ID': result.traceId || '',

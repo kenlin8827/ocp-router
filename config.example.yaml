@@ -75,3 +75,20 @@ session:
   strategy: "monotonic"             # Options: 'monotonic' (escalate-only, industry gold standard) | 'sticky' | 'stateless'
   ttlSeconds: 3600                  # Session time-to-live in seconds (default 1 hour)
   maxSessions: 10000                # Maximum concurrent active sessions in memory LRU cache
+
+# ==============================================================================
+# Industrial-Grade Circuit Breaker & Health Management (ADR-0008)
+# ==============================================================================
+circuitBreaker:
+  enabled: true                     # Enable Circuit Breaker and proactive upstream fault isolation
+  failureThreshold: 3               # Trip breaker after 3 consecutive 5xx/network failures
+  slidingWindowSize: 20             # Request sliding window size for calculating failure rate
+  failureRateThreshold: 0.5         # Trip breaker if error rate exceeds 50% in sliding window
+  initialCooldownMs: 30000          # Initial cooldown duration in ms (30 seconds)
+  maxCooldownMs: 18000000           # Maximum cooldown cap (5 hours: handles multi-hour major upstream outages)
+  cooldownMultiplier: 2.0           # Exponential backoff multiplier for consecutive outage periods
+  quotaCooldownMs: 43200000         # Hard-trip cooldown for 402/insufficient quota errors (12 hours)
+  halfOpenMaxProbes: 1              # Maximum canary requests permitted during HALF_OPEN recovery trial
+  activeProbing:
+    enabled: false                  # Background active health probing for tripped models
+    intervalMs: 60000               # Health check interval in ms (1 minute)

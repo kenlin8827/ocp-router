@@ -295,6 +295,18 @@ export class SessionManager {
     return existed;
   }
 
+  /**
+   * Dynamically re-pins a session to a healthy model instance when the previous
+   * pinned model has been tripped by circuit breaker (Session Self-Healing).
+   */
+  public repinModel(sessionId: string, newModel: TierModelConfig): boolean {
+    const session = this.sessions.get(sessionId);
+    if (!session) return false;
+    session.pinnedModel = newModel.id;
+    session.pinnedProvider = newModel.provider;
+    return true;
+  }
+
   public clear(): void {
     this.sessions.clear();
     this.prefixToSession.clear();

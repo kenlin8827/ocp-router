@@ -41,6 +41,21 @@ const DEFAULT_CONFIG: RouterConfig = {
     maxSamples: 100000,
     logUserPrompt: true,
   },
+  circuitBreaker: {
+    enabled: true,
+    failureThreshold: 3,
+    slidingWindowSize: 20,
+    failureRateThreshold: 0.5,
+    initialCooldownMs: 30000,
+    maxCooldownMs: 5 * 3600 * 1000, // 5 hours max cooldown
+    cooldownMultiplier: 2.0,
+    quotaCooldownMs: 12 * 3600 * 1000, // 12 hours for quota/balance exhaustion
+    halfOpenMaxProbes: 1,
+    activeProbing: {
+      enabled: false,
+      intervalMs: 60000,
+    },
+  },
   providers: [],
   models: [],
 };
@@ -62,6 +77,7 @@ export function loadConfig(configPath?: string): RouterConfig {
           layer2: { ...DEFAULT_CONFIG.classifier?.layer2, ...parsed?.classifier?.layer2 },
         },
         flywheel: { ...DEFAULT_CONFIG.flywheel, ...parsed?.flywheel },
+        circuitBreaker: { ...DEFAULT_CONFIG.circuitBreaker, ...parsed?.circuitBreaker },
         providers: parsed?.providers || DEFAULT_CONFIG.providers,
         models: parsed?.models || DEFAULT_CONFIG.models,
       };
